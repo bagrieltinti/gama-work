@@ -31,7 +31,7 @@ export function LandingPage() {
     <header className="landing-nav">
       <a href="#top" className="landing-brand" aria-label="Gama Work, início"><BrandMark /><span>GAMA <b>WORK</b></span></a>
       <span className="landing-nav-note">Organização que acompanha o seu trabalho.</span>
-      <a className="landing-nav-cta" href="/">Acessar plataforma <ArrowRight size={15} /></a>
+      <a className="landing-nav-cta" href="/?cadastro=1">Criar conta gratuita <ArrowRight size={15} /></a>
     </header>
 
     <section className="landing-hero">
@@ -39,8 +39,8 @@ export function LandingPage() {
         <p className="landing-eyebrow"><span /> FERRAMENTA DE TRABALHO PARA EQUIPES</p>
         <h1>Ideias em movimento.<br /><em>Trabalho em sintonia.</em></h1>
         <p className="landing-lead">Um espaço claro para cuidar dos clientes, registrar conversas e acompanhar os próximos passos da equipe.</p>
-        <div className="landing-hero-actions"><a className="landing-primary-button" href="/">Acessar o Gama Work <ArrowRight size={17} /></a><a className="landing-text-link" href="#recursos">Conhecer os recursos <ArrowDown size={15} /></a></div>
-        <p className="landing-access-note"><Check size={14} /> Acesso aos espaços por convite da proprietária.</p>
+        <div className="landing-hero-actions"><a className="landing-primary-button" href="/?cadastro=1">Criar conta gratuita <ArrowRight size={17} /></a><a className="landing-text-link" href="#recursos">Conhecer os recursos <ArrowDown size={15} /></a></div>
+        <p className="landing-access-note"><Check size={14} /> Acesso gratuito. Crie seu espaço e convide sua equipe.</p>
       </div>
 
       <div className="landing-preview-wrap" aria-label="Prévia do painel Gama Work">
@@ -69,7 +69,7 @@ export function LandingPage() {
     <section className="landing-cta">
       <div className="landing-cta-symbol"><BrandMark /></div>
       <div><p className="landing-eyebrow">AGÊNCIA GAMA</p><h2>Um espaço organizado.<br />No ritmo da sua equipe.</h2></div>
-      <a href="/" className="landing-primary-button">Acessar Gama Work <ArrowRight size={17} /></a>
+      <a href="/?cadastro=1" className="landing-primary-button">Criar conta gratuita <ArrowRight size={17} /></a>
     </section>
 
     <footer className="landing-footer">

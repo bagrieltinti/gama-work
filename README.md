@@ -1,14 +1,14 @@
 # Gama Work
 
-Primeiro protótipo de uma plataforma interna para organizar clientes, atendimentos, agendas e tarefas por empresa. Cada empresa usa um espaço próprio, que pode ter nome, descrição, ícone e cor personalizados.
+Primeiro protótipo de uma plataforma gratuita e aberta para organizar clientes, atendimentos, agendas e tarefas por empresa. Qualquer pessoa pode criar uma conta, abrir um ou mais espaços e convidar sua equipe. Cada espaço pode ter nome, descrição, ícone e cor personalizados.
 
 ## Recursos desta primeira versão
 
 - Landing page de apresentação em `/landing`; o sistema de equipes permanece em `/`.
 - Conta com e-mail e senha, exigindo nome completo, com entrada por Google preparada para receber as credenciais OAuth da Agência Gama.
 - Cadastro com confirmação de senha, exibição e indicador de força; exige 12 caracteres, letras maiúsculas e minúsculas, número e símbolo.
-- Espaços de trabalho isolados por empresa, com troca entre espaços, criação e personalização pela proprietária.
-- Acesso por convite da proprietária, com papéis de proprietária, administradora e colaboradora.
+- Cadastro aberto e gratuito com e-mail e senha; espaços de trabalho isolados por empresa, com troca entre espaços e personalização pela proprietária.
+- Convites controlam o acesso aos espaços já existentes; cada proprietária escolhe quem entra e define os papéis de proprietária, administradora e colaboradora.
 - Convite inicial para os e-mails de administração definidos no segredo `INITIAL_ADMIN_EMAILS` do Worker.
 - Cadastro de clientes, status, fidelização, retorno e histórico de atendimentos.
 - Agenda da equipe e itens pessoais, além de lista de tarefas.

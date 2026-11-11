@@ -60,7 +60,10 @@ app.route("/api/workspaces/:workspaceId/clients", clientRoutes);
 app.route("/api/workspaces/:workspaceId/tasks", taskRoutes);
 app.route("/api/workspaces/:workspaceId/templates", templateRoutes);
 
-app.get("/api/me", (c) => c.json({ user: c.get("user") }));
+app.get("/api/me", async (c) => {
+  const user = c.get("user");
+  return c.json({ user });
+});
 
 app.notFound((c) => c.json({ error: "Rota não encontrada." }, 404));
 app.onError((error, c) => {

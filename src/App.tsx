@@ -86,7 +86,7 @@ export default function App() {
 
   if (!authReady || loading) return <div className="loading-screen"><BrandMark /><span>Preparando seu espaço…</span></div>;
   if (!user) return <AuthScreen googleEnabled={googleEnabled} invitation={invitation} onAuthenticated={refreshApp} />;
-  if (!workspaces.length) return <WelcomeScreen user={user} onCreate={() => setModal({ kind: "workspace" })} modal={modal} setModal={setModal} close={() => setModal({ kind: null })} onCreated={loadWorkspaces} />;
+  if (!workspaces.length) return <WelcomeScreen user={user} onCreate={() => setModal({ kind: "workspace" })} modal={modal} setModal={setModal} close={() => setModal({ kind: null })} onCreated={loadWorkspaces} onLogout={async () => { await authClient.signOut(); window.location.reload(); }} />;
 
   const active = workspaces.find((space) => space.id === activeId) ?? workspaces[0];
   return <WorkspaceShell
@@ -97,7 +97,7 @@ export default function App() {
   />;
 }
 
-function WelcomeScreen({ user, onCreate, modal, setModal, close, onCreated }: { user: AppUser; onCreate: () => void; modal: ModalState; setModal: (modal: ModalState) => void; close: () => void; onCreated: () => Promise<void> }) {
+function WelcomeScreen({ user, onCreate, modal, setModal, close, onCreated, onLogout }: { user: AppUser; onCreate: () => void; modal: ModalState; setModal: (modal: ModalState) => void; close: () => void; onCreated: () => Promise<void>; onLogout: () => void }) {
   const [busy, setBusy] = useState(false);
   async function createSpace(values: Record<string, unknown>) {
     setBusy(true);
@@ -113,7 +113,8 @@ function WelcomeScreen({ user, onCreate, modal, setModal, close, onCreated }: { 
     <div className="welcome-card"><span className="welcome-icon"><BriefcaseBusiness /></span><p className="eyebrow">OLÁ, {user.name.split(" ")[0].toLocaleUpperCase("pt-BR")}</p>
       <h1>Comece pelo espaço da sua empresa.</h1><p>Crie um espaço para organizar clientes, agenda e tarefas da equipe. Você poderá renomear e personalizar a identidade quando quiser.</p>
       <button className="button button-primary" onClick={onCreate}><Plus size={17} /> Criar espaço da empresa</button>
-      <div className="welcome-tip"><ShieldCheck size={16} /> Só você poderá convidar pessoas para este espaço.</div>
+      <div className="welcome-tip"><ShieldCheck size={16} /> Convide sua equipe quando o espaço estiver pronto.</div>
+      <button className="welcome-logout" onClick={onLogout}>Sair da conta</button>
     </div>
     {modal.kind === "workspace" && <WorkspaceModal onClose={close} onSave={createSpace} saving={busy} />}
   </main>;
@@ -133,7 +134,7 @@ function WorkspaceShell(props: {
   return <div className="app-frame" style={{ "--workspace-accent": active.accent_color } as React.CSSProperties}>
     <aside className={`sidebar ${props.mobileNav ? "sidebar-open" : ""}`}>
       <div className="brand-row"><BrandMark /><span className="brand-word">GAMA <b>WORK</b></span><button className="icon-button mobile-close" onClick={() => props.setMobileNav(false)} aria-label="Fechar menu"><X size={18} /></button></div>
-      <WorkspacePicker workspaces={workspaces} active={active} canCreate={workspaces.some((space) => space.role === "owner")} onSwitch={props.onSwitch} onCreate={() => setModal({ kind: "workspace" })} />
+      <WorkspacePicker workspaces={workspaces} active={active} onSwitch={props.onSwitch} onCreate={() => setModal({ kind: "workspace" })} />
       <div className="sidebar-divider" />
       <p className="nav-label">ESPAÇO DE TRABALHO</p>
       <nav className="main-nav">{navigation.map(({ id, title, icon: Icon }) => <button key={id} onClick={() => { setView(id); props.setMobileNav(false); }} className={`nav-item ${view === id ? "nav-item-active" : ""}`}><Icon size={18} strokeWidth={1.8} /><span>{title}</span>{id === "tasks" && <span className="nav-dot" />}</button>)}</nav>
@@ -171,11 +172,11 @@ function WorkspaceShell(props: {
   </div>;
 }
 
-function WorkspacePicker({ workspaces, active, canCreate, onSwitch, onCreate }: { workspaces: Workspace[]; active: Workspace; canCreate: boolean; onSwitch: (id: string) => void; onCreate: () => void }) {
+function WorkspacePicker({ workspaces, active, onSwitch, onCreate }: { workspaces: Workspace[]; active: Workspace; onSwitch: (id: string) => void; onCreate: () => void }) {
   const [open, setOpen] = useState(false);
   return <div className="workspace-picker-wrap"><button className="workspace-picker" onClick={() => setOpen(!open)}><span className="workspace-icon" style={{ background: active.accent_color }}>{iconFor(active.icon)}</span><span className="workspace-picker-copy"><b>{active.name}</b><small>{active.description || "Espaço da empresa"}</small></span><ChevronDown size={16} /></button>
     {open && <><button className="menu-dismiss" onClick={() => setOpen(false)} aria-label="Fechar seletor" /><div className="workspace-menu">{workspaces.map((space) => <button key={space.id} className={`workspace-option ${space.id === active.id ? "selected" : ""}`} onClick={() => { onSwitch(space.id); setOpen(false); }}><span className="workspace-icon small-icon" style={{ background: space.accent_color }}>{iconFor(space.icon)}</span><span><b>{space.name}</b><small>{space.role === "owner" ? "Proprietária" : space.role === "admin" ? "Administradora" : "Colaboradora"}</small></span>{space.id === active.id && <Check size={15} />}</button>)}
-      {canCreate && <button className="workspace-create-option" onClick={() => { setOpen(false); onCreate(); }}><Plus size={16} /> Criar espaço</button>}</div></>}
+      <button className="workspace-create-option" onClick={() => { setOpen(false); onCreate(); }}><Plus size={16} /> Criar espaço</button></div></>}
   </div>;
 }
 

@@ -11,7 +11,7 @@ interface AuthScreenProps {
 }
 
 export function AuthScreen({ googleEnabled, invitation, onAuthenticated }: AuthScreenProps) {
-  const [mode, setMode] = useState<"login" | "register">(invitation ? "register" : "login");
+  const [mode, setMode] = useState<"login" | "register">(invitation || new URLSearchParams(window.location.search).get("cadastro") === "1" ? "register" : "login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState(invitation?.email ?? "");
   const [password, setPassword] = useState("");
@@ -88,7 +88,7 @@ export function AuthScreen({ googleEnabled, invitation, onAuthenticated }: AuthS
               ? "Use o e-mail do convite para entrar na equipe."
               : mode === "login"
                 ? "Entre para continuar de onde sua equipe parou."
-                : "O acesso aos espaços é liberado por convite da proprietária."}
+                : "Gratuito: crie seu espaço e convide sua equipe ou entre em outra empresa por convite."}
           </p>
 
           <form className="auth-form" onSubmit={submit}>

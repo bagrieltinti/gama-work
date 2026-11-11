@@ -45,23 +45,6 @@ export function createAuth(env: WorkerEnv, request: Request) {
               });
             }
             const email = user.email.trim().toLowerCase();
-            const initialOwner = env.INITIAL_OWNER_EMAIL.trim().toLowerCase();
-            if (email === initialOwner) return { data: { ...user, email, name } };
-
-            const invitation = await env.DB.prepare(
-              `SELECT id FROM workspace_invites
-               WHERE lower(email) = ? AND accepted_at IS NULL AND expires_at > ?
-               LIMIT 1`,
-            )
-              .bind(email, Date.now())
-              .first<{ id: string }>();
-
-            if (!invitation) {
-              throw new APIError("FORBIDDEN", {
-                message: "Para criar uma conta, use o e-mail de um convite ativo do espaço.",
-              });
-            }
-
             return { data: { ...user, email, name } };
           },
         },

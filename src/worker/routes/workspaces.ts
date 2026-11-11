@@ -53,11 +53,7 @@ routes.post("/", async (c) => {
     .bind(user.id)
     .first<{ yes: number }>();
   const isInitialOwner = user.email.toLowerCase() === c.env.INITIAL_OWNER_EMAIL.toLowerCase();
-  if (!existingOwner && !isInitialOwner) {
-    return c.json({ error: "A criação de espaços está disponível para proprietárias de um espaço." }, 403);
-  }
-  const workspaceBefore = await c.env.DB.prepare("SELECT 1 AS yes FROM workspaces LIMIT 1").first<{ yes: number }>();
-  const isFirstWorkspace = !workspaceBefore && isInitialOwner;
+  const isFirstGamaWorkspace = !existingOwner && isInitialOwner;
 
   const id = crypto.randomUUID();
   const now = Date.now();
@@ -83,7 +79,7 @@ routes.post("/", async (c) => {
   await c.env.DB.batch(statements);
 
   const bootstrapAdminInvites: Array<{ email: string; url: string }> = [];
-  if (isFirstWorkspace) {
+  if (isFirstGamaWorkspace) {
     const adminEmails = [...new Set((c.env.INITIAL_ADMIN_EMAILS || "").split(/[\n,;]+/).map((email) => email.trim().toLowerCase()).filter(Boolean))];
     for (const email of adminEmails) {
       if (email === user.email.toLowerCase()) continue;
