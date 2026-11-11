@@ -3,6 +3,7 @@ import {
   Clock3, Layers3, UsersRound,
 } from "lucide-react";
 import { BrandMark } from "./BrandMark";
+import { BETA_FREE_NOTICE, BETA_SPACE_LIMIT, FUTURE_PRICING_NOTICE } from "../lib/plan";
 import "./LandingPage.css";
 
 const features = [
@@ -31,7 +32,7 @@ export function LandingPage() {
     <header className="landing-nav">
       <a href="#top" className="landing-brand" aria-label="Gama Work, início"><BrandMark /><span>GAMA <b>WORK</b></span></a>
       <span className="landing-nav-note">Organização que acompanha o seu trabalho.</span>
-      <a className="landing-nav-cta" href="/?cadastro=1">Criar conta gratuita <ArrowRight size={15} /></a>
+      <div className="landing-nav-actions"><a className="landing-nav-login" href="/acesso">Entrar</a><a className="landing-nav-cta" href="/acesso?cadastro=1">Criar conta gratuita <ArrowRight size={15} /></a></div>
     </header>
 
     <section className="landing-hero">
@@ -39,8 +40,8 @@ export function LandingPage() {
         <p className="landing-eyebrow"><span /> FERRAMENTA DE TRABALHO PARA EQUIPES</p>
         <h1>Ideias em movimento.<br /><em>Trabalho em sintonia.</em></h1>
         <p className="landing-lead">Um espaço claro para cuidar dos clientes, registrar conversas e acompanhar os próximos passos da equipe.</p>
-        <div className="landing-hero-actions"><a className="landing-primary-button" href="/?cadastro=1">Criar conta gratuita <ArrowRight size={17} /></a><a className="landing-text-link" href="#recursos">Conhecer os recursos <ArrowDown size={15} /></a></div>
-        <p className="landing-access-note"><Check size={14} /> Acesso gratuito. Crie seu espaço e convide sua equipe.</p>
+        <div className="landing-hero-actions"><a className="landing-primary-button" href="/acesso?cadastro=1">Criar conta gratuita <ArrowRight size={17} /></a><a className="landing-text-link" href="#recursos">Conhecer os recursos <ArrowDown size={15} /></a></div>
+        <p className="landing-access-note"><Check size={14} /> Beta gratuito, sem cobranças ativas.</p>
       </div>
 
       <div className="landing-preview-wrap" aria-label="Prévia do painel Gama Work">
@@ -63,13 +64,20 @@ export function LandingPage() {
 
     <section className="landing-features" id="recursos">
       <div className="landing-section-heading"><p className="landing-eyebrow">MENOS DISPERSÃO, MAIS CLAREZA</p><h2>O essencial para o trabalho<br />andar bem.</h2><p>Uma base simples para a equipe organizar o agora e construir os próximos passos.</p></div>
-      <div className="landing-feature-grid">{features.map(({ icon: Icon, label, title, text }, index) => <article className="landing-feature-card" key={label}><span className="feature-icon"><Icon size={19} strokeWidth={1.8} /></span><p className="landing-eyebrow">{label} <span>0{index + 1}</span></p><h3>{title}</h3><p>{text}</p><a href="/" aria-label={`Acessar Gama Work: ${title}`}><ArrowRight size={16} /></a></article>)}</div>
+      <div className="landing-feature-grid">{features.map(({ icon: Icon, label, title, text }, index) => <article className="landing-feature-card" key={label}><span className="feature-icon"><Icon size={19} strokeWidth={1.8} /></span><p className="landing-eyebrow">{label} <span>0{index + 1}</span></p><h3>{title}</h3><p>{text}</p><a href="/acesso" aria-label={`Acessar Gama Work: ${title}`}><ArrowRight size={16} /></a></article>)}</div>
     </section>
 
     <section className="landing-cta">
       <div className="landing-cta-symbol"><BrandMark /></div>
       <div><p className="landing-eyebrow">AGÊNCIA GAMA</p><h2>Um espaço organizado.<br />No ritmo da sua equipe.</h2></div>
-      <a href="/?cadastro=1" className="landing-primary-button">Criar conta gratuita <ArrowRight size={17} /></a>
+      <a href="/acesso?cadastro=1" className="landing-primary-button">Criar conta gratuita <ArrowRight size={17} /></a>
+    </section>
+
+    <section className="landing-beta-notice" aria-labelledby="beta-notice-title">
+      <p className="landing-eyebrow">FASE DE TESTES</p>
+      <h2 id="beta-notice-title">Gratuito agora. Valores previstos para o futuro.</h2>
+      <p>{BETA_FREE_NOTICE} Cada conta pode criar até {BETA_SPACE_LIMIT} espaços próprios durante os testes.</p>
+      <p>{FUTURE_PRICING_NOTICE}</p>
     </section>
 
     <footer className="landing-footer">
@@ -77,7 +85,7 @@ export function LandingPage() {
         <a href="#top" className="footer-brand" aria-label="Gama Work, início"><BrandMark /><span>Gama<span>Work</span></span></a>
         <p className="footer-tagline">Produtos digitais da Agência Gama<br />para organizar ideias e avançar com clareza.</p>
         <div className="footer-contact"><p className="footer-label">CONTATO</p><a href="https://wa.me/5514998024492" target="_blank" rel="noreferrer">WhatsApp · (14) 99802-4492 <span>↗</span></a><span>Avaré/SP · atendimento online</span><a href="https://agenciagama.com.br" target="_blank" rel="noreferrer">Conheça a Agência Gama <span>↗</span></a></div>
-        <div className="footer-contact footer-secondary"><a href="mailto:contato@agenciagama.com.br">contato@agenciagama.com.br</a><a href="https://www.instagram.com/agenciagama/" target="_blank" rel="noreferrer">Instagram da Agência Gama <span>↗</span></a></div>
+        <div className="footer-contact footer-secondary"><a href="/acesso">Entrar no Gama Work</a><a href="#recursos">Conhecer os recursos</a><a href="mailto:contato@agenciagama.com.br">contato@agenciagama.com.br</a><a href="https://www.instagram.com/agenciagama/" target="_blank" rel="noreferrer">Instagram da Agência Gama <span>↗</span></a></div>
       </div>
       <div className="footer-bottom"><span>© 2026 GAMA COMUNICAÇÃO</span><span>ESTRATÉGIA · DESIGN · TECNOLOGIA</span><a href="#top">VOLTAR AO TOPO <ArrowUp size={11} /></a></div>
     </footer>

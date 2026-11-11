@@ -85,7 +85,7 @@ export function AuthScreen({ googleEnabled, invitation, onAuthenticated }: AuthS
           <h2>{mode === "login" ? "Acesse seu espaço" : "Crie sua conta"}</h2>
           <p className="auth-subtitle">
             {invitation
-              ? "Use o e-mail do convite para entrar na equipe."
+              ? "Use o e-mail do convite. Depois de entrar, você poderá aceitar ou recusar o acesso."
               : mode === "login"
                 ? "Entre para continuar de onde sua equipe parou."
                 : "Gratuito: crie seu espaço e convide sua equipe ou entre em outra empresa por convite."}

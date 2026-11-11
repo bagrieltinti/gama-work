@@ -12,7 +12,7 @@ const app = new Hono<AppEnv>();
 
 app.use("/api/*", async (c, next) => {
   const path = c.req.path;
-  const publicInvitePreview = c.req.method === "GET" && /^\/api\/invites\/[^/]+$/.test(path);
+  const publicInvitePreview = c.req.method === "GET" && /^\/api\/invites\/[a-f0-9]{64}$/i.test(path);
   if (path.startsWith("/api/auth/") || path === "/api/config" || publicInvitePreview) {
     await next();
     return;

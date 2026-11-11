@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { AppEnv, WorkspaceRole } from "../types";
-import { currentUser, fieldColor, fieldEmail, fieldRole, fieldText, getWorkspaceAccess, isOwner, readJson, randomToken, hashText } from "../lib";
+import { currentUser, fieldColor, fieldEmail, fieldRole, fieldText, getWorkspaceAccess, isOwner, canManage, readJson, randomToken, hashText } from "../lib";
+import { BETA_SPACE_LIMIT, INCLUDED_GUEST_SLOTS } from "../../lib/plan";
 
 const routes = new Hono<AppEnv>();
 
@@ -63,20 +64,25 @@ routes.post("/", async (c) => {
   const statements = [
     c.env.DB.prepare(
       `INSERT INTO workspaces (id, name, description, icon, accent_color, owner_user_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(id, name, description, icon, color, user.id, now, now),
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE (SELECT COUNT(*) FROM workspaces WHERE owner_user_id = ?) < ?`,
+    ).bind(id, name, description, icon, color, user.id, now, now, user.id, BETA_SPACE_LIMIT),
     c.env.DB.prepare(
-      `INSERT INTO workspace_members (workspace_id, user_id, role, joined_at) VALUES (?, ?, 'owner', ?)`,
-    ).bind(id, user.id, now),
+      `INSERT INTO workspace_members (workspace_id, user_id, role, joined_at)
+       SELECT ?, ?, 'owner', ? WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ?)`,
+    ).bind(id, user.id, now, id),
     ...starterTemplates.map((template) =>
       c.env.DB.prepare(
         `INSERT INTO journey_templates
          (id, workspace_id, name, category, description, stages_json, is_active, created_by, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
-      ).bind(crypto.randomUUID(), id, template.name, template.category, template.description, JSON.stringify(template.stages), user.id, now, now),
+         SELECT ?, ?, ?, ?, ?, ?, 1, ?, ?, ? WHERE EXISTS (SELECT 1 FROM workspaces WHERE id = ?)`,
+      ).bind(crypto.randomUUID(), id, template.name, template.category, template.description, JSON.stringify(template.stages), user.id, now, now, id),
     ),
   ];
-  await c.env.DB.batch(statements);
+  const created = await c.env.DB.batch(statements);
+  if (!created[0]?.meta?.changes) {
+    return c.json({ error: `Cada conta pode criar até ${BETA_SPACE_LIMIT} espaços próprios durante a fase de testes gratuita.` }, 409);
+  }
 
   const bootstrapAdminInvites: Array<{ email: string; url: string }> = [];
   if (isFirstGamaWorkspace) {
@@ -106,7 +112,7 @@ routes.post("/", async (c) => {
         `INSERT INTO workspace_invites (id, workspace_id, email, role, token_hash, invited_by, expires_at, created_at)
          VALUES (?, ?, ?, 'admin', ?, ?, ?, ?)`,
       ).bind(crypto.randomUUID(), id, email, await hashText(token), user.id, nowInvite + 7 * 24 * 60 * 60 * 1000, nowInvite).run();
-      bootstrapAdminInvites.push({ email, url: new URL(`/join/${token}`, c.req.url).toString() });
+      bootstrapAdminInvites.push({ email, url: new URL(`/acesso/join/${token}`, c.env.APP_PUBLIC_URL).toString() });
     }
   }
 
@@ -160,7 +166,23 @@ routes.get("/:workspaceId/members", async (c) => {
   )
     .bind(workspaceId)
     .all();
-  return c.json({ members: rows.results });
+  const now = Date.now();
+  const [activeGuests, pendingGuests] = await Promise.all([
+    c.env.DB.prepare("SELECT COUNT(*) AS count FROM workspace_members WHERE workspace_id = ? AND role != 'owner'")
+      .bind(workspaceId).first<{ count: number }>(),
+    c.env.DB.prepare(
+      `SELECT COUNT(*) AS count FROM workspace_invites i
+       WHERE i.workspace_id = ? AND i.accepted_at IS NULL AND i.expires_at > ?
+       AND NOT EXISTS (
+         SELECT 1 FROM user u INNER JOIN workspace_members m ON m.user_id = u.id AND m.workspace_id = i.workspace_id
+         WHERE lower(u.email) = lower(i.email)
+       )`,
+    ).bind(workspaceId, now).first<{ count: number }>(),
+  ]);
+  const active = activeGuests?.count ?? 0;
+  const pending = pendingGuests?.count ?? 0;
+  const used = active + pending;
+  return c.json({ members: rows.results, guestSeats: { active, pending, included: INCLUDED_GUEST_SLOTS, used, additional: Math.max(0, used - INCLUDED_GUEST_SLOTS) } });
 });
 
 routes.patch("/:workspaceId/members/:userId", async (c) => {
@@ -169,7 +191,7 @@ routes.patch("/:workspaceId/members/:userId", async (c) => {
   const user = currentUser(c);
   const access = await getWorkspaceAccess(c, workspaceId);
   if (!access) return c.json({ error: "Este espaço não está disponível para sua conta." }, 404);
-  if (!isOwner(access)) return c.json({ error: "Somente a proprietária pode alterar os papéis." }, 403);
+  if (!canManage(access)) return c.json({ error: "Você não tem permissão para alterar os papéis." }, 403);
 
   const body = await readJson(c);
   const nextRole = fieldRole(body.role);
@@ -182,6 +204,8 @@ routes.patch("/:workspaceId/members/:userId", async (c) => {
     .bind(workspaceId, targetId)
     .first<{ role: WorkspaceRole }>();
   if (!target) return c.json({ error: "Pessoa não encontrada neste espaço." }, 404);
+  if (target.role === "owner") return c.json({ error: "A proprietária não pode ter o papel alterado por esta ação." }, 403);
+  if (nextRole === "owner" && !isOwner(access)) return c.json({ error: "Somente a proprietária pode transferir a propriedade." }, 403);
 
   if (nextRole === "owner") {
     const now = Date.now();
@@ -213,14 +237,16 @@ routes.delete("/:workspaceId/members/:userId", async (c) => {
   const user = currentUser(c);
   const access = await getWorkspaceAccess(c, workspaceId);
   if (!access) return c.json({ error: "Este espaço não está disponível para sua conta." }, 404);
-  if (!isOwner(access)) return c.json({ error: "Somente a proprietária pode remover pessoas." }, 403);
-  if (targetId === user.id) return c.json({ error: "Transfira a propriedade antes de sair deste espaço." }, 400);
+  if (!canManage(access)) return c.json({ error: "Você não tem permissão para remover pessoas." }, 403);
+  if (targetId === user.id) return c.json({ error: "Peça a outra administradora ou à proprietária para remover seu acesso." }, 400);
 
-  await c.env.DB.prepare(
-    "DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ? AND role != 'owner'",
-  )
+  const target = await c.env.DB.prepare("SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ? LIMIT 1")
     .bind(workspaceId, targetId)
-    .run();
+    .first<{ role: WorkspaceRole }>();
+  if (!target) return c.json({ error: "Pessoa não encontrada neste espaço." }, 404);
+  if (target.role === "owner") return c.json({ error: "A propriedade do espaço não pode ser removida por esta ação." }, 403);
+  await c.env.DB.prepare("DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?")
+    .bind(workspaceId, targetId).run();
   return c.json({ ok: true });
 });
 
@@ -228,7 +254,7 @@ routes.get("/:workspaceId/invites", async (c) => {
   const workspaceId = c.req.param("workspaceId") ?? "";
   const access = await getWorkspaceAccess(c, workspaceId);
   if (!access) return c.json({ error: "Este espaço não está disponível para sua conta." }, 404);
-  if (!isOwner(access)) return c.json({ error: "Somente a proprietária pode consultar os convites." }, 403);
+  if (!canManage(access)) return c.json({ error: "Você não tem permissão para consultar os convites." }, 403);
   const result = await c.env.DB.prepare(
     `SELECT id, email, role, expires_at, accepted_at, created_at
      FROM workspace_invites WHERE workspace_id = ? AND accepted_at IS NULL AND expires_at > ?
@@ -244,13 +270,22 @@ routes.post("/:workspaceId/invites", async (c) => {
   const user = currentUser(c);
   const access = await getWorkspaceAccess(c, workspaceId);
   if (!access) return c.json({ error: "Este espaço não está disponível para sua conta." }, 404);
-  if (!isOwner(access)) return c.json({ error: "Os convites são enviados pela proprietária do espaço." }, 403);
+  if (!canManage(access)) return c.json({ error: "Você não tem permissão para convidar pessoas." }, 403);
 
   const body = await readJson(c);
   const email = fieldEmail(body.email);
   const role = body.role === "admin" ? "admin" : body.role === "collaborator" ? "collaborator" : null;
+  const deliveryMethod = body.deliveryMethod === "link" ? "link" : body.deliveryMethod === "account" ? "account" : null;
   if (!email) return c.json({ error: "Informe um e-mail válido." }, 400);
   if (!role) return c.json({ error: "Escolha Administrador ou Colaborador." }, 400);
+  if (!deliveryMethod) return c.json({ error: "Escolha como enviar o convite." }, 400);
+  if (deliveryMethod === "link" && !isOwner(access)) return c.json({ error: "Somente a proprietária pode gerar links de convite." }, 403);
+
+  if (deliveryMethod === "account") {
+    const account = await c.env.DB.prepare("SELECT id FROM user WHERE lower(email) = ? LIMIT 1")
+      .bind(email).first<{ id: string }>();
+    if (!account) return c.json({ error: "Não encontrei uma conta com esse e-mail. Para convidar alguém sem conta, a proprietária pode gerar um link." }, 404);
+  }
 
   const member = await c.env.DB.prepare(
     `SELECT 1 AS yes FROM workspace_members m INNER JOIN user u ON u.id = m.user_id
@@ -277,8 +312,29 @@ routes.post("/:workspaceId/invites", async (c) => {
     .bind(inviteId, workspaceId, email, role, await hashText(token), user.id, expiresAt, Date.now())
     .run();
 
-  const url = new URL(`/join/${token}`, c.req.url).toString();
-  return c.json({ invitation: { id: inviteId, email, role, expiresAt, url } }, 201);
+  const url = deliveryMethod === "link" ? new URL(`/acesso/join/${token}`, c.env.APP_PUBLIC_URL).toString() : undefined;
+  return c.json({ invitation: { id: inviteId, email, role, expiresAt, url, deliveryMethod } }, 201);
+});
+
+routes.post("/:workspaceId/invites/:inviteId/link", async (c) => {
+  const workspaceId = c.req.param("workspaceId") ?? "";
+  const inviteId = c.req.param("inviteId") ?? "";
+  const access = await getWorkspaceAccess(c, workspaceId);
+  if (!access) return c.json({ error: "Este espaço não está disponível para sua conta." }, 404);
+  if (!isOwner(access)) return c.json({ error: "Somente a proprietária pode gerar links de convite." }, 403);
+
+  const now = Date.now();
+  const invite = await c.env.DB.prepare(
+    `SELECT id FROM workspace_invites WHERE id = ? AND workspace_id = ? AND accepted_at IS NULL AND expires_at > ? LIMIT 1`,
+  ).bind(inviteId, workspaceId, now).first<{ id: string }>();
+  if (!invite) return c.json({ error: "Este convite não está mais pendente." }, 404);
+
+  const token = randomToken();
+  const expiresAt = now + 7 * 24 * 60 * 60 * 1000;
+  await c.env.DB.prepare(
+    "UPDATE workspace_invites SET token_hash = ?, expires_at = ? WHERE id = ? AND workspace_id = ? AND accepted_at IS NULL",
+  ).bind(await hashText(token), expiresAt, inviteId, workspaceId).run();
+  return c.json({ url: new URL(`/acesso/join/${token}`, c.env.APP_PUBLIC_URL).toString(), expiresAt });
 });
 
 routes.delete("/:workspaceId/invites/:inviteId", async (c) => {
@@ -286,7 +342,7 @@ routes.delete("/:workspaceId/invites/:inviteId", async (c) => {
   const inviteId = c.req.param("inviteId") ?? "";
   const access = await getWorkspaceAccess(c, workspaceId);
   if (!access) return c.json({ error: "Este espaço não está disponível para sua conta." }, 404);
-  if (!isOwner(access)) return c.json({ error: "Somente a proprietária pode cancelar convites." }, 403);
+  if (!canManage(access)) return c.json({ error: "Você não tem permissão para cancelar convites." }, 403);
   await c.env.DB.prepare(
     "DELETE FROM workspace_invites WHERE id = ? AND workspace_id = ? AND accepted_at IS NULL",
   )

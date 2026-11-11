@@ -7,6 +7,7 @@ const worker = {
   entrypoint: "./src/worker/index.ts",
   env: {
     DB: bindings.d1({ name: "gama-work-db", id: "1f723c9d-a5b8-4284-af76-73daabf7ccad" }),
+    APP_PUBLIC_URL: bindings.text("https://work.agenciagama.com.br"),
     INITIAL_OWNER_EMAIL: bindings.text("empresa@agenciagama.com.br"),
     INITIAL_ADMIN_EMAILS: bindings.secret(),
     BETTER_AUTH_SECRET: bindings.secret(),

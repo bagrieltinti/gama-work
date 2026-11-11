@@ -4,11 +4,13 @@ Primeiro protótipo de uma plataforma gratuita e aberta para organizar clientes,
 
 ## Recursos desta primeira versão
 
-- Landing page de apresentação em `/landing`; o sistema de equipes permanece em `/`.
+- Landing page principal em `/`; o sistema fica em `/acesso`. A navegação do app usa `/acesso` (visão geral), `/acesso/convites`, `/acesso/clientes`, `/acesso/agenda`, `/acesso/tarefas`, `/acesso/modelos` e `/acesso/equipe`. Convites por código usam `/acesso/join/:codigo`.
 - Conta com e-mail e senha, exigindo nome completo, com entrada por Google preparada para receber as credenciais OAuth da Agência Gama.
 - Cadastro com confirmação de senha, exibição e indicador de força; exige 12 caracteres, letras maiúsculas e minúsculas, número e símbolo.
-- Cadastro aberto e gratuito com e-mail e senha; espaços de trabalho isolados por empresa, com troca entre espaços e personalização pela proprietária.
-- Convites controlam o acesso aos espaços já existentes; cada proprietária escolhe quem entra e define os papéis de proprietária, administradora e colaboradora.
+- Cadastro aberto na fase de testes; cada conta pode ser proprietária de até três espaços. A API aplica o limite.
+- Três vagas de convidado incluídas por espaço. Durante a beta, vagas adicionais seguem gratuitas e a interface apresenta apenas os valores previstos para o futuro; não há cobrança nem integração de pagamentos.
+- Convites recebidos ficam na caixa de entrada para aceite ou recusa explícitos. Links têm código único, expiram em sete dias e podem ser regenerados pela proprietária.
+- Proprietárias e administradoras gerenciam membros, papéis e cancelamento de convites. Administradoras convidam contas existentes; só a proprietária gera links e transfere a propriedade.
 - Convite inicial para os e-mails de administração definidos no segredo `INITIAL_ADMIN_EMAILS` do Worker.
 - Cadastro de clientes, status, fidelização, retorno e histórico de atendimentos.
 - Agenda da equipe e itens pessoais, além de lista de tarefas.
@@ -32,7 +34,7 @@ npm install
 npm run dev
 ```
 
-O login e as rotas de dados locais precisam de uma instância D1 e dos segredos `BETTER_AUTH_SECRET`, `INITIAL_ADMIN_EMAILS`, `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET`. `INITIAL_ADMIN_EMAILS` aceita uma lista separada por vírgulas, ponto e vírgula ou quebras de linha. O e-mail inicial da proprietária está definido como `empresa@agenciagama.com.br`. Veja `cloudflare.config.ts` e `migrations/0001_initial.sql`.
+O login e as rotas de dados locais precisam de uma instância D1 e dos segredos `BETTER_AUTH_SECRET`, `INITIAL_ADMIN_EMAILS`, `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET`. `INITIAL_ADMIN_EMAILS` aceita uma lista separada por vírgulas, ponto e vírgula ou quebras de linha. O e-mail inicial da proprietária está definido como `empresa@agenciagama.com.br`; os convites usam `https://work.agenciagama.com.br` como origem pública. Veja `cloudflare.config.ts` e `migrations/0001_initial.sql`.
 
 ## Deploy
 
@@ -43,7 +45,7 @@ npm run build
 npm run deploy
 ```
 
-Antes do primeiro deploy, configure a base D1 e os segredos no ambiente da conta Cloudflare da Agência Gama. Não coloque credenciais em arquivos versionados. O domínio próprio pode ser vinculado numa etapa posterior.
+Antes do primeiro deploy, configure a base D1 e os segredos no ambiente da conta Cloudflare da Agência Gama. Não coloque credenciais em arquivos versionados. O Worker usa o domínio `work.agenciagama.com.br`; a landing fica na raiz e a plataforma em `/acesso`.
 
 ## Identidade visual
 
@@ -51,4 +53,4 @@ As cores seguem o brandbook da Agência Gama: laranja `#F65A1E`, laranja escuro 
 
 ## Escopo do protótipo
 
-Este primeiro corte prepara a estrutura para evolução gradual. Integração com WhatsApp, colaboração em documentos no estilo Notion e importação completa de todas as bases do Notion ficam para atualizações futuras.
+O Gama Work está em fase de testes gratuita. Não há assinatura nem cobrança ativa. Valores informativos previstos para o futuro: R$ 29,90/mês pelo espaço principal, R$ 9,90/mês por espaço adicional e R$ 9,90/mês por convidado além dos três incluídos. O produto poderá se tornar pago futuramente, inclusive sem aviso prévio. Integração com WhatsApp, colaboração em documentos no estilo Notion e importação completa de todas as bases do Notion ficam para atualizações futuras.

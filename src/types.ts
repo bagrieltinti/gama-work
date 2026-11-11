@@ -95,4 +95,22 @@ export interface Invitation {
   expiresAt?: number;
   accepted_at?: number | null;
   url?: string;
+  deliveryMethod?: "account" | "link";
+}
+
+export interface ReceivedInvitation extends Invitation {
+  workspace_id: string;
+  workspace_name: string;
+  workspace_icon: string;
+  workspace_accent_color: string;
+  invited_by_name: string;
+  created_at: number;
+}
+
+export interface GuestSeatSummary {
+  active: number;
+  pending: number;
+  included: number;
+  used: number;
+  additional: number;
 }

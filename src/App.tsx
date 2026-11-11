@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNo
 import {
   Activity, ArrowDownToLine, ArrowRight, BriefcaseBusiness, CalendarDays,
   Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, Command,
-  FileUp, Filter, FolderKanban, LayoutDashboard, LogOut, Menu, MoreHorizontal, Plus,
+  FileUp, Filter, FolderKanban, LayoutDashboard, LogOut, Mail, Menu, MoreHorizontal, Plus,
   Search, Settings2, ShieldCheck, Sparkles, Tag, UsersRound, X,
 } from "lucide-react";
 import JSZip from "jszip";
@@ -11,31 +11,45 @@ import { AuthScreen } from "./components/AuthScreen";
 import { BrandMark } from "./components/BrandMark";
 import { api, downloadBlob, formatDate, formatTime, json, patchJson, toDateTimeLocal } from "./lib/api";
 import { authClient } from "./lib/auth-client";
-import type { AppUser, Client, Interaction, Invitation, JourneyTemplate, Member, Task, Workspace } from "./types";
+import { BETA_FREE_NOTICE, BETA_SPACE_LIMIT, FUTURE_PRICING_NOTICE } from "./lib/plan";
+import type { AppUser, Client, GuestSeatSummary, Interaction, Invitation, JourneyTemplate, Member, ReceivedInvitation, Task, Workspace } from "./types";
 import "./App.css";
 
-type View = "home" | "clients" | "agenda" | "tasks" | "templates" | "settings";
+type View = "home" | "invitations" | "clients" | "agenda" | "tasks" | "templates" | "settings";
 type ModalState = { kind: "workspace" | "client" | "task" | "interaction" | "template" | "import" | "bootstrap-invite" | null; data?: unknown };
 type InvitePreview = { workspace_name: string; email: string; role: string };
 type BootstrapAdminInvite = { email: string; url: string };
 const navigation: Array<{ id: View; title: string; icon: typeof LayoutDashboard }> = [
   { id: "home", title: "Visão geral", icon: LayoutDashboard },
+  { id: "invitations", title: "Convites", icon: Mail },
   { id: "clients", title: "Clientes", icon: UsersRound },
   { id: "agenda", title: "Agenda", icon: CalendarDays },
   { id: "tasks", title: "Tarefas", icon: CheckCheck },
   { id: "templates", title: "Modelos", icon: FolderKanban },
 ];
 
-function inviteCode() { return window.location.pathname.match(/^\/join\/([^/]+)/)?.[1] ?? ""; }
+const viewPaths: Record<View, string> = {
+  home: "/acesso",
+  invitations: "/acesso/convites",
+  clients: "/acesso/clientes",
+  agenda: "/acesso/agenda",
+  tasks: "/acesso/tarefas",
+  templates: "/acesso/modelos",
+  settings: "/acesso/equipe",
+};
+const pathViews: Record<string, View> = Object.fromEntries(Object.entries(viewPaths).map(([view, path]) => [path, view])) as Record<string, View>;
+function viewFromPath() { return pathViews[window.location.pathname.replace(/\/$/, "")] ?? "home"; }
+function inviteCode() { return window.location.pathname.match(/^\/(?:acesso\/)?join\/([^/]+)/)?.[1] ?? ""; }
 
 export default function App() {
   const [user, setUser] = useState<AppUser | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [invitation, setInvitation] = useState<InvitePreview | null>(null);
+  const [receivedInvitations, setReceivedInvitations] = useState<ReceivedInvitation[]>([]);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [activeId, setActiveId] = useState(localStorage.getItem("gama-work-active") || "");
-  const [view, setView] = useState<View>("home");
+  const [view, setView] = useState<View>(viewFromPath);
   const [modal, setModal] = useState<ModalState>({ kind: null });
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
@@ -53,23 +67,31 @@ export default function App() {
     });
   }, []);
 
+  const loadReceivedInvitations = useCallback(async () => {
+    const response = await api<{ invitations: ReceivedInvitation[] }>("invites/received");
+    setReceivedInvitations(response.invitations);
+  }, []);
+
   const refreshApp = useCallback(async () => {
     setLoading(true);
     try {
       const me = await api<{ user: AppUser }>("me");
       setUser(me.user);
-      if (token) {
-        await api(`invites/${token}/accept`, { method: "POST" });
-        window.history.replaceState({}, "", "/");
-      }
-      await loadWorkspaces();
+      if (token || new URLSearchParams(window.location.search).has("cadastro")) window.history.replaceState({}, "", "/acesso");
+      await Promise.all([loadWorkspaces(), loadReceivedInvitations()]);
     } catch {
       setUser(null);
     } finally {
       setAuthReady(true);
       setLoading(false);
     }
-  }, [loadWorkspaces, token]);
+  }, [loadReceivedInvitations, loadWorkspaces, token]);
+
+  useEffect(() => {
+    const syncView = () => setView(viewFromPath());
+    window.addEventListener("popstate", syncView);
+    return () => window.removeEventListener("popstate", syncView);
+  }, []);
 
   useEffect(() => {
     void Promise.all([
@@ -84,20 +106,31 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
+  function navigate(next: View) {
+    setView(next);
+    if (window.location.pathname !== viewPaths[next]) window.history.pushState({}, "", viewPaths[next]);
+  }
+
+  async function respondToInvitation(invitationId: string, action: "accept" | "decline") {
+    await api(`invites/received/${invitationId}/respond`, json({ action }));
+    await Promise.all([loadReceivedInvitations(), action === "accept" ? loadWorkspaces() : Promise.resolve()]);
+  }
+
   if (!authReady || loading) return <div className="loading-screen"><BrandMark /><span>Preparando seu espaço…</span></div>;
   if (!user) return <AuthScreen googleEnabled={googleEnabled} invitation={invitation} onAuthenticated={refreshApp} />;
-  if (!workspaces.length) return <WelcomeScreen user={user} onCreate={() => setModal({ kind: "workspace" })} modal={modal} setModal={setModal} close={() => setModal({ kind: null })} onCreated={loadWorkspaces} onLogout={async () => { await authClient.signOut(); window.location.reload(); }} />;
+  if (!workspaces.length) return <WelcomeScreen user={user} invitations={receivedInvitations} onRespondInvitation={respondToInvitation} onCreate={() => setModal({ kind: "workspace" })} modal={modal} setModal={setModal} close={() => setModal({ kind: null })} onCreated={loadWorkspaces} onLogout={async () => { await authClient.signOut(); window.location.reload(); }} />;
 
   const active = workspaces.find((space) => space.id === activeId) ?? workspaces[0];
   return <WorkspaceShell
-    user={user} workspaces={workspaces} active={active} view={view} setView={setView}
+    user={user} workspaces={workspaces} active={active} view={view} setView={navigate}
     modal={modal} setModal={setModal} mobileNav={mobileNav} setMobileNav={setMobileNav}
     notice={notice} setNotice={setNotice} onSwitch={(id) => { setActiveId(id); localStorage.setItem("gama-work-active", id); }}
+    invitations={receivedInvitations} onRespondInvitation={respondToInvitation}
     onReloadWorkspaces={loadWorkspaces} onLogout={async () => { await authClient.signOut(); window.location.reload(); }}
   />;
 }
 
-function WelcomeScreen({ user, onCreate, modal, setModal, close, onCreated, onLogout }: { user: AppUser; onCreate: () => void; modal: ModalState; setModal: (modal: ModalState) => void; close: () => void; onCreated: () => Promise<void>; onLogout: () => void }) {
+function WelcomeScreen({ user, invitations, onRespondInvitation, onCreate, modal, setModal, close, onCreated, onLogout }: { user: AppUser; invitations: ReceivedInvitation[]; onRespondInvitation: (id: string, action: "accept" | "decline") => Promise<void>; onCreate: () => void; modal: ModalState; setModal: (modal: ModalState) => void; close: () => void; onCreated: () => Promise<void>; onLogout: () => void }) {
   const [busy, setBusy] = useState(false);
   async function createSpace(values: Record<string, unknown>) {
     setBusy(true);
@@ -113,17 +146,52 @@ function WelcomeScreen({ user, onCreate, modal, setModal, close, onCreated, onLo
     <div className="welcome-card"><span className="welcome-icon"><BriefcaseBusiness /></span><p className="eyebrow">OLÁ, {user.name.split(" ")[0].toLocaleUpperCase("pt-BR")}</p>
       <h1>Comece pelo espaço da sua empresa.</h1><p>Crie um espaço para organizar clientes, agenda e tarefas da equipe. Você poderá renomear e personalizar a identidade quando quiser.</p>
       <button className="button button-primary" onClick={onCreate}><Plus size={17} /> Criar espaço da empresa</button>
-      <div className="welcome-tip"><ShieldCheck size={16} /> Convide sua equipe quando o espaço estiver pronto.</div>
+      <div className="welcome-tip"><ShieldCheck size={16} /> Você pode criar até {BETA_SPACE_LIMIT} espaços próprios durante a fase de testes.</div>
       <button className="welcome-logout" onClick={onLogout}>Sair da conta</button>
     </div>
+    <div className="welcome-invitations"><InvitationInbox invitations={invitations} onRespond={onRespondInvitation} /></div>
+    <BetaPricingNotice className="welcome-pricing" />
     {modal.kind === "workspace" && <WorkspaceModal onClose={close} onSave={createSpace} saving={busy} />}
   </main>;
+}
+
+function InvitationsPage({ invitations, onRespond }: { invitations: ReceivedInvitation[]; onRespond: (id: string, action: "accept" | "decline") => Promise<void> }) {
+  return <div className="page invitations-page">
+    <div className="page-heading"><div><p className="eyebrow">ACESSOS</p><h1>Convites recebidos</h1><p className="page-intro">Revise cada convite antes de entrar em um espaço de trabalho.</p></div></div>
+    <InvitationInbox invitations={invitations} onRespond={onRespond} />
+  </div>;
+}
+
+function InvitationInbox({ invitations, onRespond }: { invitations: ReceivedInvitation[]; onRespond: (id: string, action: "accept" | "decline") => Promise<void> }) {
+  const [busyId, setBusyId] = useState("");
+  const [error, setError] = useState("");
+  async function respond(invitation: ReceivedInvitation, action: "accept" | "decline") {
+    setBusyId(invitation.id);
+    setError("");
+    try { await onRespond(invitation.id, action); }
+    catch (issue) { setError(errorText(issue)); }
+    finally { setBusyId(""); }
+  }
+  return <section className="panel invitation-inbox">
+    <div className="section-title"><div><h2>Convites recebidos</h2><p>Você decide em quais espaços entrar.</p></div><span className="invite-lock"><Mail size={17} /></span></div>
+    {error && <div className="form-error" role="alert">{error}</div>}
+    {invitations.length ? <div className="received-invite-list">{invitations.map((invite) => <article className="received-invite-card" key={invite.id}>
+      <span className="workspace-icon" style={{ background: invite.workspace_accent_color }}>{iconFor(invite.workspace_icon)}</span>
+      <div className="received-invite-copy"><b>{invite.workspace_name}</b><small>Convidada por {invite.invited_by_name} · {invite.role === "admin" ? "Administradora" : "Colaboradora"}</small><small>Expira em {formatDate(invite.expires_at)}</small></div>
+      <div className="received-invite-actions"><button className="button button-primary" disabled={busyId === invite.id} onClick={() => void respond(invite, "accept")}><Check size={15} /> Aceitar</button><button className="button button-secondary" disabled={busyId === invite.id} onClick={() => void respond(invite, "decline")}><X size={15} /> Recusar</button></div>
+    </article>)}</div> : <div className="invite-inbox-empty"><span><Mail size={19} /></span><b>Nenhum convite pendente</b><small>Quando alguém convidar este e-mail para uma equipe, o convite aparecerá aqui.</small></div>}
+  </section>;
+}
+
+function BetaPricingNotice({ className = "" }: { className?: string }) {
+  return <aside className={`beta-pricing-notice ${className}`}><span className="eyebrow">FASE DE TESTES</span><b>{BETA_FREE_NOTICE}</b><p>{FUTURE_PRICING_NOTICE}</p></aside>;
 }
 
 function WorkspaceShell(props: {
   user: AppUser; workspaces: Workspace[]; active: Workspace; view: View; setView: (view: View) => void;
   modal: ModalState; setModal: (modal: ModalState) => void; mobileNav: boolean; setMobileNav: (value: boolean) => void;
   notice: string; setNotice: (message: string) => void; onSwitch: (id: string) => void;
+  invitations: ReceivedInvitation[]; onRespondInvitation: (id: string, action: "accept" | "decline") => Promise<void>;
   onReloadWorkspaces: () => Promise<void>; onLogout: () => void;
 }) {
   const { user, workspaces, active, view, setView, modal, setModal, notice, setNotice } = props;
@@ -134,10 +202,10 @@ function WorkspaceShell(props: {
   return <div className="app-frame" style={{ "--workspace-accent": active.accent_color } as React.CSSProperties}>
     <aside className={`sidebar ${props.mobileNav ? "sidebar-open" : ""}`}>
       <div className="brand-row"><BrandMark /><span className="brand-word">GAMA <b>WORK</b></span><button className="icon-button mobile-close" onClick={() => props.setMobileNav(false)} aria-label="Fechar menu"><X size={18} /></button></div>
-      <WorkspacePicker workspaces={workspaces} active={active} onSwitch={props.onSwitch} onCreate={() => setModal({ kind: "workspace" })} />
+      <WorkspacePicker workspaces={workspaces} active={active} ownedSpaceCount={workspaces.filter((space) => space.role === "owner").length} onSwitch={props.onSwitch} onCreate={() => setModal({ kind: "workspace" })} />
       <div className="sidebar-divider" />
       <p className="nav-label">ESPAÇO DE TRABALHO</p>
-      <nav className="main-nav">{navigation.map(({ id, title, icon: Icon }) => <button key={id} onClick={() => { setView(id); props.setMobileNav(false); }} className={`nav-item ${view === id ? "nav-item-active" : ""}`}><Icon size={18} strokeWidth={1.8} /><span>{title}</span>{id === "tasks" && <span className="nav-dot" />}</button>)}</nav>
+      <nav className="main-nav">{navigation.map(({ id, title, icon: Icon }) => <button key={id} onClick={() => { setView(id); props.setMobileNav(false); }} className={`nav-item ${view === id ? "nav-item-active" : ""}`}><Icon size={18} strokeWidth={1.8} /><span>{title}</span>{id === "invitations" && props.invitations.length > 0 && <span className="invite-nav-count">{props.invitations.length}</span>}{id === "tasks" && <span className="nav-dot" />}</button>)}</nav>
       <div className="sidebar-grow" />
       <button className={`nav-item ${view === "settings" ? "nav-item-active" : ""}`} onClick={() => setView("settings")}><Settings2 size={18} /><span>Espaço e equipe</span></button>
       <div className="sidebar-footnote"><span className="footnote-orb"><Sparkles size={14} /></span><span><b>Um passo de cada vez.</b><small>Mais ferramentas chegam com o tempo.</small></span></div>
@@ -153,6 +221,7 @@ function WorkspaceShell(props: {
       </header>
       <div className="content-area" key={`${active.id}-${view}`}>
         {view === "home" && <Dashboard user={user} workspace={active} version={dataVersion} setView={setView} setModal={setModal} />}
+        {view === "invitations" && <InvitationsPage invitations={props.invitations} onRespond={props.onRespondInvitation} />}
         {view === "clients" && <ClientsPage workspace={active} version={dataVersion} setModal={setModal} />}
         {view === "agenda" && <AgendaPage workspace={active} user={user} version={dataVersion} setModal={setModal} />}
         {view === "tasks" && <TasksPage workspace={active} version={dataVersion} setModal={setModal} setNotice={setNotice} />}
@@ -172,11 +241,12 @@ function WorkspaceShell(props: {
   </div>;
 }
 
-function WorkspacePicker({ workspaces, active, onSwitch, onCreate }: { workspaces: Workspace[]; active: Workspace; onSwitch: (id: string) => void; onCreate: () => void }) {
+function WorkspacePicker({ workspaces, active, ownedSpaceCount, onSwitch, onCreate }: { workspaces: Workspace[]; active: Workspace; ownedSpaceCount: number; onSwitch: (id: string) => void; onCreate: () => void }) {
   const [open, setOpen] = useState(false);
   return <div className="workspace-picker-wrap"><button className="workspace-picker" onClick={() => setOpen(!open)}><span className="workspace-icon" style={{ background: active.accent_color }}>{iconFor(active.icon)}</span><span className="workspace-picker-copy"><b>{active.name}</b><small>{active.description || "Espaço da empresa"}</small></span><ChevronDown size={16} /></button>
     {open && <><button className="menu-dismiss" onClick={() => setOpen(false)} aria-label="Fechar seletor" /><div className="workspace-menu">{workspaces.map((space) => <button key={space.id} className={`workspace-option ${space.id === active.id ? "selected" : ""}`} onClick={() => { onSwitch(space.id); setOpen(false); }}><span className="workspace-icon small-icon" style={{ background: space.accent_color }}>{iconFor(space.icon)}</span><span><b>{space.name}</b><small>{space.role === "owner" ? "Proprietária" : space.role === "admin" ? "Administradora" : "Colaboradora"}</small></span>{space.id === active.id && <Check size={15} />}</button>)}
-      <button className="workspace-create-option" onClick={() => { setOpen(false); onCreate(); }}><Plus size={16} /> Criar espaço</button></div></>}
+      <div className="workspace-limit-note">Espaços próprios: {ownedSpaceCount}/{BETA_SPACE_LIMIT}</div>
+      {ownedSpaceCount < BETA_SPACE_LIMIT ? <button className="workspace-create-option" onClick={() => { setOpen(false); onCreate(); }}><Plus size={16} /> Criar espaço</button> : <div className="workspace-create-locked"><ShieldCheck size={15} /> Limite gratuito atingido</div>}</div></>}
   </div>;
 }
 
@@ -258,21 +328,21 @@ function parseStages(value: string) { try { const parsed: unknown = JSON.parse(v
 
 function SettingsPage({ workspace, user, version, setNotice, setModal, reloadWorkspaces }: { workspace: Workspace; user: AppUser; version: number; setNotice: (message: string) => void; setModal: (modal: ModalState) => void; reloadWorkspaces: () => Promise<void> }) {
   const [form, setForm] = useState({ name: workspace.name, description: workspace.description, icon: workspace.icon, accentColor: workspace.accent_color });
-  const [members, setMembers] = useState<Member[]>([]); const [invites, setInvites] = useState<Invitation[]>([]); const [email, setEmail] = useState(""); const [role, setRole] = useState<"admin" | "collaborator">("collaborator"); const [busy, setBusy] = useState(false); const [tab, setTab] = useState<"space" | "team" | "data">("space");
-  const isOwner = workspace.role === "owner"; const canManage = isOwner || workspace.role === "admin";
-  const refresh = useCallback(async () => { const data = await api<{ members: Member[] }>(`workspaces/${workspace.id}/members`); setMembers(data.members); if (isOwner) { const response = await api<{ invitations: Invitation[] }>(`workspaces/${workspace.id}/invites`); setInvites(response.invitations); } }, [workspace.id, isOwner]);
+  const [members, setMembers] = useState<Member[]>([]); const [invites, setInvites] = useState<Invitation[]>([]); const [guestSeats, setGuestSeats] = useState<GuestSeatSummary>({ active: 0, pending: 0, included: 3, used: 0, additional: 0 }); const [email, setEmail] = useState(""); const [role, setRole] = useState<"admin" | "collaborator">("collaborator"); const [deliveryMethod, setDeliveryMethod] = useState<"account" | "link">(workspace.role === "owner" ? "link" : "account"); const [busy, setBusy] = useState(false); const [tab, setTab] = useState<"space" | "team" | "data">("space");
+  const isOwner = workspace.role === "owner"; const canManageTeam = isOwner || workspace.role === "admin";
+  const refresh = useCallback(async () => { const data = await api<{ members: Member[]; guestSeats: GuestSeatSummary }>(`workspaces/${workspace.id}/members`); setMembers(data.members); setGuestSeats(data.guestSeats); if (canManageTeam) { const response = await api<{ invitations: Invitation[] }>(`workspaces/${workspace.id}/invites`); setInvites(response.invitations); } else setInvites([]); }, [workspace.id, canManageTeam]);
   useEffect(() => {
     const openImport = () => setModal({ kind: "import" });
     window.addEventListener("gama:import", openImport);
     return () => window.removeEventListener("gama:import", openImport);
   }, [setModal]);
-  useEffect(() => { setForm({ name: workspace.name, description: workspace.description, icon: workspace.icon, accentColor: workspace.accent_color }); void refresh(); }, [workspace.id, workspace.name, workspace.description, workspace.icon, workspace.accent_color, refresh, version]);
+  useEffect(() => { setForm({ name: workspace.name, description: workspace.description, icon: workspace.icon, accentColor: workspace.accent_color }); setDeliveryMethod(workspace.role === "owner" ? "link" : "account"); void refresh(); }, [workspace.id, workspace.name, workspace.description, workspace.icon, workspace.accent_color, workspace.role, refresh, version]);
   async function saveSpace(event: FormEvent) { event.preventDefault(); setBusy(true); try { await api(`workspaces/${workspace.id}`, patchJson(form)); await reloadWorkspaces(); setNotice("Identidade do espaço atualizada."); } catch (e) { setNotice(errorText(e)); } finally { setBusy(false); } }
-  async function createInvite(event: FormEvent) { event.preventDefault(); setBusy(true); try { const result = await api<{ invitation: Invitation }>(`workspaces/${workspace.id}/invites`, json({ email, role })); setInvites((current) => [result.invitation, ...current]); setEmail(""); setNotice("Convite criado. Copie o link para enviar à pessoa."); } catch (e) { setNotice(errorText(e)); } finally { setBusy(false); } }
+  async function createInvite(event: FormEvent) { event.preventDefault(); setBusy(true); try { const result = await api<{ invitation: Invitation }>(`workspaces/${workspace.id}/invites`, json({ email, role, deliveryMethod })); setEmail(""); await refresh(); setInvites((current) => [result.invitation, ...current.filter((item) => item.id !== result.invitation.id)]); setNotice(result.invitation.url ? "Link único criado. Copie-o na lista de convites pendentes." : "Convite enviado à caixa da conta. A pessoa poderá aceitar ou recusar ao entrar."); } catch (e) { setNotice(errorText(e)); } finally { setBusy(false); } }
   async function setMemberRole(member: Member, newRole: string) { if (!window.confirm(newRole === "owner" ? `Transferir a propriedade para ${member.name}?` : `Alterar o papel de ${member.name}?`)) return; try { await api(`workspaces/${workspace.id}/members/${member.user_id}`, patchJson({ role: newRole })); await refresh(); await reloadWorkspaces(); setNotice(newRole === "owner" ? "Propriedade transferida." : "Papel atualizado."); } catch (e) { setNotice(errorText(e)); } }
   async function removeMember(member: Member) { if (!window.confirm(`Remover ${member.name} deste espaço?`)) return; try { await api(`workspaces/${workspace.id}/members/${member.user_id}`, { method: "DELETE" }); await refresh(); setNotice("Acesso removido."); } catch (e) { setNotice(errorText(e)); } }
-  async function cancelInvite(invite: Invitation) { try { await api(`workspaces/${workspace.id}/invites/${invite.id}`, { method: "DELETE" }); setInvites((list) => list.filter((item) => item.id !== invite.id)); } catch (e) { setNotice(errorText(e)); } }
-  async function copyInvite(invite: Invitation) { if (!invite.url) return; await navigator.clipboard.writeText(invite.url); setNotice("Link do convite copiado."); }
+  async function cancelInvite(invite: Invitation) { try { await api(`workspaces/${workspace.id}/invites/${invite.id}`, { method: "DELETE" }); setInvites((list) => list.filter((item) => item.id !== invite.id)); setNotice("Convite cancelado."); } catch (e) { setNotice(errorText(e)); } }
+  async function copyInvite(invite: Invitation) { try { let url = invite.url; if (!url) { const result = await api<{ url: string; expiresAt: number }>(`workspaces/${workspace.id}/invites/${invite.id}/link`, { method: "POST" }); url = result.url; setInvites((list) => list.map((item) => item.id === invite.id ? { ...item, url, expiresAt: result.expiresAt } : item)); } await navigator.clipboard.writeText(url); setNotice("Link de convite copiado. Códigos anteriores desse convite deixam de funcionar."); } catch (e) { setNotice(errorText(e)); } }
   async function exportData(kind: "json" | "csv") { try { const response = await fetch(`/api/workspaces/${workspace.id}/clients/export.${kind}`, { credentials: "include" }); if (!response.ok) throw new Error("Não foi possível exportar este espaço."); downloadBlob(await response.blob(), `gama-work-${workspace.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.${kind}`); } catch (e) { setNotice(errorText(e)); } }
   return <div className="page settings-page"><div className="page-heading"><div><p className="eyebrow">CONFIGURAÇÕES</p><h1>Espaço e equipe</h1><p className="page-intro">Gerencie o espaço <b>{workspace.name}</b>, a identidade e os acessos.</p></div></div>
     <div className="settings-layout"><nav className="settings-nav"><button className={tab === "space" ? "selected" : ""} onClick={() => setTab("space")}><BriefcaseBusiness size={17} /> Espaço</button><button className={tab === "team" ? "selected" : ""} onClick={() => setTab("team")}><UsersRound size={17} /> Equipe <span>{members.length}</span></button><button className={tab === "data" ? "selected" : ""} onClick={() => setTab("data")}><ArrowDownToLine size={17} /> Dados</button></nav>
@@ -282,13 +352,41 @@ function SettingsPage({ workspace, user, version, setNotice, setModal, reloadWor
             <div className="settings-choice-grid"><fieldset className="icon-choice"><legend>Ícone do espaço</legend><div>{["briefcase", "sparkles", "users", "layers", "heart", "building"].map((icon) => <button type="button" key={icon} className={form.icon === icon ? "chosen" : ""} disabled={!isOwner} onClick={() => setForm({ ...form, icon })} aria-label={`Selecionar ícone ${icon}`}>{iconFor(icon)}</button>)}</div></fieldset><fieldset className="color-choice"><legend>Cor de destaque</legend><div>{["#F65A1E", "#C94412", "#5F5B55", "#507C70", "#536B98", "#9A6C83"].map((color) => <button type="button" key={color} className={form.accentColor === color ? "chosen" : ""} style={{ "--swatch": color } as React.CSSProperties} onClick={() => setForm({ ...form, accentColor: color })} disabled={!isOwner} aria-label={`Selecionar cor ${color}`} />)}</div></fieldset></div>
             {isOwner && <div className="form-actions"><span>As mudanças aparecem para todos neste espaço.</span><button className="button button-primary" disabled={busy}>{busy ? "Salvando…" : "Salvar alterações"}</button></div>}{!isOwner && <p className="muted-copy">Somente a proprietária pode personalizar este espaço.</p>}
           </form>
-          <div className="role-explainer"><h3>Papéis de acesso</h3><p><b>Proprietária</b> — personaliza o espaço, convida pessoas e gerencia todos os acessos.</p><p><b>Administradora</b> — gerencia clientes, modelos e exportações.</p><p><b>Colaboradora</b> — trabalha com clientes, atendimentos, agenda e tarefas.</p></div>
+          <div className="role-explainer"><h3>Papéis de acesso</h3><p><b>Proprietária</b> — personaliza o espaço, gera links de convite e pode transferir a propriedade.</p><p><b>Administradora</b> — gerencia usuários, convites e permissões, sem alterar ou transferir a propriedade.</p><p><b>Colaboradora</b> — trabalha com clientes, atendimentos, agenda e tarefas.</p></div>
         </section>}
-        {tab === "team" && <><section className="panel settings-card"><div className="section-title"><div><h2>Membros</h2><p>Quem pode acessar o espaço <b>{workspace.name}</b>.</p></div><span className="member-count"><UsersRound size={15} /> {members.length}</span></div><div className="member-list">{members.map((member) => <div className="member-row" key={member.user_id}><Avatar name={member.name} small /><span className="member-copy"><b>{member.name}{member.user_id === user.id ? " (você)" : ""}</b><small>{member.email}</small></span><span className={`member-role role-${member.role}`}>{member.role === "owner" ? "Proprietária" : member.role === "admin" ? "Administradora" : "Colaboradora"}</span>{isOwner && member.role !== "owner" && <select value={member.role} onChange={(e) => void setMemberRole(member, e.target.value)} aria-label={`Papel de ${member.name}`}><option value="admin">Administradora</option><option value="collaborator">Colaboradora</option><option value="owner">Transferir propriedade</option></select>}{isOwner && member.user_id !== user.id && <button className="icon-button remove-member" title="Remover acesso" onClick={() => void removeMember(member)}><X size={15} /></button>}</div>)}</div></section>
-          {isOwner && <section className="panel settings-card invite-card"><div className="section-title"><div><h2>Convidar alguém</h2><p>A proprietária escolhe quem entra e qual será o papel.</p></div><span className="invite-lock"><ShieldCheck size={16} /></span></div><form className="invite-form" onSubmit={(e) => void createInvite(e)}><label className="field-label">E-mail<input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="pessoa@empresa.com.br" /></label><label className="field-label">Papel<select value={role} onChange={(e) => setRole(e.target.value as "admin" | "collaborator")}><option value="collaborator">Colaboradora</option><option value="admin">Administradora</option></select></label><button className="button button-primary" disabled={busy}><Plus size={16} /> Criar convite</button></form>
-            {invites.length > 0 && <div className="invite-list"><p className="eyebrow">CONVITES PENDENTES</p>{invites.map((invite) => <div className="invite-row" key={invite.id}><span><b>{invite.email}</b><small>{invite.role === "admin" ? "Administradora" : "Colaboradora"} · expira {formatDate(invite.expires_at ?? invite.expiresAt)}</small></span><button className="text-button" onClick={() => void copyInvite(invite)}>Copiar link</button><button className="icon-button" onClick={() => void cancelInvite(invite)} aria-label="Cancelar convite"><X size={15} /></button></div>)}</div>}
-          </section>}</>}
-        {tab === "data" && <section className="panel settings-card"><div className="section-title"><div><h2>Levar seus dados</h2><p>Exporte uma cópia sempre que precisar.</p></div><span className="data-icon"><ArrowDownToLine size={18} /></span></div><div className="export-choice"><span><b>Exportação completa</b><small>Clientes, histórico, agenda, modelos e jornadas em um arquivo JSON.</small></span><button className="button button-secondary" disabled={!canManage} onClick={() => void exportData("json")}>Exportar JSON <ArrowDownToLine size={15} /></button></div><div className="export-choice"><span><b>Lista de clientes</b><small>Arquivo CSV compatível com planilhas e sistemas que aceitam CSV.</small></span><button className="button button-secondary" disabled={!canManage} onClick={() => void exportData("csv")}>Exportar CSV <ArrowDownToLine size={15} /></button></div><button className="import-card" disabled={!canManage} onClick={() => window.dispatchEvent(new CustomEvent("gama:import"))}><span className="import-card-icon"><FileUp size={18} /></span><span><b>Importar do Notion ou de uma planilha</b><small>Use um CSV ou exportação do Notion em ZIP. Escolha uma tabela de clientes.</small></span><ArrowRight size={16} /></button>{!canManage && <p className="muted-copy">A exportação e importação ficam disponíveis para proprietária e administradoras.</p>}</section>}
+        {tab === "team" && <>
+          <section className="panel settings-card guest-seat-card">
+            <div className="section-title"><div><h2>Vagas de convidados</h2><p>Membros e convites pendentes, sem incluir a proprietária.</p></div><span className="member-count"><UsersRound size={15} /> {guestSeats.used}/{guestSeats.included}</span></div>
+            <div className="guest-seat-meter"><span style={{ width: `${Math.min(100, guestSeats.used / Math.max(1, guestSeats.included) * 100)}%` }} /></div>
+            <p>{guestSeats.active} membro(s) ativo(s) · {guestSeats.pending} convite(s) aguardando resposta.</p>
+            {guestSeats.additional > 0 ? <small>Convidados adicionais seguem gratuitos durante a fase de testes. {FUTURE_PRICING_NOTICE}</small> : <small>Os 3 primeiros convidados estão incluídos. {BETA_FREE_NOTICE} {FUTURE_PRICING_NOTICE}</small>}
+          </section>
+          <section className="panel settings-card">
+            <div className="section-title"><div><h2>Membros</h2><p>Quem pode acessar o espaço <b>{workspace.name}</b>.</p></div><span className="member-count"><UsersRound size={15} /> {members.length}</span></div>
+            <div className="member-list">{members.map((member) => <div className="member-row" key={member.user_id}>
+              <Avatar name={member.name} small /><span className="member-copy"><b>{member.name}{member.user_id === user.id ? " (você)" : ""}</b><small>{member.email}</small></span>
+              <span className={`member-role role-${member.role}`}>{member.role === "owner" ? "Proprietária" : member.role === "admin" ? "Administradora" : "Colaboradora"}</span>
+              {canManageTeam && member.role !== "owner" && member.user_id !== user.id && <select value={member.role} onChange={(e) => void setMemberRole(member, e.target.value)} aria-label={`Papel de ${member.name}`}><option value="collaborator">Colaboradora</option><option value="admin">Administradora</option>{isOwner && <option value="owner">Transferir propriedade</option>}</select>}
+              {canManageTeam && member.role !== "owner" && member.user_id !== user.id && <button className="icon-button remove-member" title="Remover acesso" onClick={() => void removeMember(member)}><X size={15} /></button>}
+            </div>)}</div>
+            {!canManageTeam && <p className="muted-copy">Proprietária e administradoras podem gerenciar convites e permissões.</p>}
+          </section>
+          {canManageTeam && <section className="panel settings-card invite-card">
+            <div className="section-title"><div><h2>Convidar alguém</h2><p>{isOwner ? "Gere um link único ou envie o convite à conta existente." : "Convide contas já cadastradas diretamente pela caixa de convites."}</p></div><span className="invite-lock"><ShieldCheck size={16} /></span></div>
+            <form className={`invite-form ${isOwner ? "invite-form-owner" : "invite-form-admin"}`} onSubmit={(e) => void createInvite(e)}>
+              <label className="field-label">E-mail<input required type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="pessoa@empresa.com.br" /></label>
+              <label className="field-label">Papel<select value={role} onChange={(e) => setRole(e.target.value as "admin" | "collaborator")}><option value="collaborator">Colaboradora</option><option value="admin">Administradora</option></select></label>
+              {isOwner && <label className="field-label">Forma de envio<select value={deliveryMethod} onChange={(e) => setDeliveryMethod(e.target.value as "account" | "link")}><option value="link">Gerar link único</option><option value="account">Enviar à conta existente</option></select></label>}
+              <button className="button button-primary" disabled={busy}><Plus size={16} /> Criar convite</button>
+            </form>
+            {invites.length > 0 && <div className="invite-list"><p className="eyebrow">CONVITES PENDENTES</p>{invites.map((invite) => <div className="invite-row" key={invite.id}>
+              <span><b>{invite.email}</b><small>{invite.role === "admin" ? "Administradora" : "Colaboradora"} · aguardando resposta até {formatDate(invite.expires_at ?? invite.expiresAt)}</small></span>
+              {isOwner && <button className="text-button" onClick={() => void copyInvite(invite)}>{invite.url ? "Copiar link" : "Gerar link"}</button>}
+              <button className="icon-button" onClick={() => void cancelInvite(invite)} aria-label="Cancelar convite"><X size={15} /></button>
+            </div>)}</div>}
+          </section>}
+        </>}
+        {tab === "data" && <section className="panel settings-card"><div className="section-title"><div><h2>Levar seus dados</h2><p>Exporte uma cópia sempre que precisar.</p></div><span className="data-icon"><ArrowDownToLine size={18} /></span></div><div className="export-choice"><span><b>Exportação completa</b><small>Clientes, histórico, agenda, modelos e jornadas em um arquivo JSON.</small></span><button className="button button-secondary" disabled={!canManageTeam} onClick={() => void exportData("json")}>Exportar JSON <ArrowDownToLine size={15} /></button></div><div className="export-choice"><span><b>Lista de clientes</b><small>Arquivo CSV compatível com planilhas e sistemas que aceitam CSV.</small></span><button className="button button-secondary" disabled={!canManageTeam} onClick={() => void exportData("csv")}>Exportar CSV <ArrowDownToLine size={15} /></button></div><button className="import-card" disabled={!canManageTeam} onClick={() => window.dispatchEvent(new CustomEvent("gama:import"))}><span className="import-card-icon"><FileUp size={18} /></span><span><b>Importar do Notion ou de uma planilha</b><small>Use um CSV ou exportação do Notion em ZIP. Escolha uma tabela de clientes.</small></span><ArrowRight size={16} /></button>{!canManageTeam && <p className="muted-copy">A exportação e importação ficam disponíveis para proprietária e administradoras.</p>}</section>}
       </div></div>
   </div>;
 }
@@ -304,7 +402,7 @@ function SearchOverlay({ workspace, onClose, onOpenClient }: { workspace: Worksp
 function WorkspaceModal({ onClose, onSave, saving = false }: { onClose: () => void; onSave: (data: Record<string, unknown>) => void; saving?: boolean }) {
   const [name, setName] = useState(""); const [description, setDescription] = useState(""); const [icon, setIcon] = useState("briefcase"); const [accentColor, setAccentColor] = useState("#F65A1E"); const [error, setError] = useState("");
   async function submit(event: FormEvent) { event.preventDefault(); if (!name.trim()) { setError("Informe um nome para o espaço."); return; } try { await onSave({ name, description, icon, accentColor }); } catch (e) { setError(errorText(e)); } }
-  return <Modal title="Criar espaço" eyebrow="NOVO ESPAÇO DE EMPRESA" onClose={onClose}><p className="modal-intro">Cada espaço mantém clientes, agenda e equipe separados. Você poderá personalizar tudo depois.</p><form className="modal-form" onSubmit={(e) => void submit(e)}><label className="field-label">Nome da empresa ou espaço<input autoFocus required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Agência Gama" /></label><label className="field-label">Descrição <span className="optional">opcional</span><textarea maxLength={280} rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Uma linha para ajudar a identificar este espaço." /></label><div className="settings-choice-grid"><fieldset className="icon-choice"><legend>Ícone</legend><div>{["briefcase", "sparkles", "users", "layers", "heart", "building"].map((choice) => <button type="button" key={choice} className={icon === choice ? "chosen" : ""} onClick={() => setIcon(choice)} aria-label={choice}>{iconFor(choice)}</button>)}</div></fieldset><fieldset className="color-choice"><legend>Cor</legend><div>{["#F65A1E", "#C94412", "#5F5B55", "#507C70", "#536B98", "#9A6C83"].map((color) => <button type="button" key={color} className={accentColor === color ? "chosen" : ""} style={{ "--swatch": color } as React.CSSProperties} onClick={() => setAccentColor(color)} aria-label={color} />)}</div></fieldset></div>{error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button className="button button-primary" disabled={saving}>{saving ? "Criando…" : "Criar espaço"}<ArrowRight size={16} /></button></div></form></Modal>;
+  return <Modal title="Criar espaço" eyebrow="NOVO ESPAÇO DE EMPRESA" onClose={onClose}><p className="modal-intro">Cada espaço mantém clientes, agenda e equipe separados. Você poderá personalizar tudo depois.</p><p className="beta-modal-note">{BETA_FREE_NOTICE} Limite de {BETA_SPACE_LIMIT} espaços próprios por conta. {FUTURE_PRICING_NOTICE}</p><form className="modal-form" onSubmit={(e) => void submit(e)}><label className="field-label">Nome da empresa ou espaço<input autoFocus required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Agência Gama" /></label><label className="field-label">Descrição <span className="optional">opcional</span><textarea maxLength={280} rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Uma linha para ajudar a identificar este espaço." /></label><div className="settings-choice-grid"><fieldset className="icon-choice"><legend>Ícone</legend><div>{["briefcase", "sparkles", "users", "layers", "heart", "building"].map((choice) => <button type="button" key={choice} className={icon === choice ? "chosen" : ""} onClick={() => setIcon(choice)} aria-label={choice}>{iconFor(choice)}</button>)}</div></fieldset><fieldset className="color-choice"><legend>Cor</legend><div>{["#F65A1E", "#C94412", "#5F5B55", "#507C70", "#536B98", "#9A6C83"].map((color) => <button type="button" key={color} className={accentColor === color ? "chosen" : ""} style={{ "--swatch": color } as React.CSSProperties} onClick={() => setAccentColor(color)} aria-label={color} />)}</div></fieldset></div>{error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button className="button button-primary" disabled={saving}>{saving ? "Criando…" : "Criar espaço"}<ArrowRight size={16} /></button></div></form></Modal>;
 }
 
 function BootstrapAdminInviteModal({ invites, onClose }: { invites: BootstrapAdminInvite[]; onClose: () => void }) {

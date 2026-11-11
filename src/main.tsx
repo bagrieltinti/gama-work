@@ -1,11 +1,17 @@
-import { StrictMode } from 'react'
+import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { LandingPage } from './components/LandingPage.tsx'
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    {/^\/landing\/?$/.test(window.location.pathname) ? <LandingPage /> : <App />}
-  </StrictMode>,
-)
+function Root() {
+  const [pathname, setPathname] = useState(window.location.pathname);
+  useEffect(() => {
+    const syncPath = () => setPathname(window.location.pathname);
+    window.addEventListener('popstate', syncPath);
+    return () => window.removeEventListener('popstate', syncPath);
+  }, []);
+  return pathname === '/' || /^\/landing\/?$/.test(pathname) ? <LandingPage /> : <App />;
+}
+
+createRoot(document.getElementById('root')!).render(<StrictMode><Root /></StrictMode>);
