@@ -16,5 +16,5 @@
 - Não inclua e-mails pessoais, tokens ou outros valores de segredo no código versionado.
 - O Worker deve validar no servidor regras de segurança e permissões; validações visuais na interface são complementares.
 - Convites e dados de cada empresa devem continuar isolados por espaço.
-- A landing page vive em `/` (com `/landing` como alias); o aplicativo autenticado vive em `/acesso`, a caixa de convites em `/acesso/convites` e links em `/acesso/join/:token`.
+- A landing page vive em `/` (com `/landing` como alias); o aplicativo autenticado vive em `/acesso`, com áreas como `/acesso/convites` e `/acesso/arquivos`, e links em `/acesso/join/:token`.
 - Para mudanças no deploy, preserve os bindings existentes do Cloudflare e não altere dados reais do D1.

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNo
 import {
   Activity, ArrowDownToLine, ArrowRight, BriefcaseBusiness, CalendarDays,
   Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, Command,
-  FileUp, Filter, FolderKanban, LayoutDashboard, LogOut, Mail, Menu, MoreHorizontal, Plus,
+  FileSpreadsheet, FileText, FileType2, FileUp, Filter, FolderKanban, FolderOpen,
+  LayoutDashboard, LockKeyhole, LogOut, Mail, Menu, MoreHorizontal, Plus,
   Search, Settings2, ShieldCheck, Sparkles, Tag, UsersRound, X,
 } from "lucide-react";
 import JSZip from "jszip";
@@ -15,7 +16,7 @@ import { BETA_FREE_NOTICE, BETA_SPACE_LIMIT, FUTURE_PRICING_NOTICE } from "./lib
 import type { AppUser, Client, GuestSeatSummary, Interaction, Invitation, JourneyTemplate, Member, ReceivedInvitation, Task, Workspace } from "./types";
 import "./App.css";
 
-type View = "home" | "invitations" | "clients" | "agenda" | "tasks" | "templates" | "settings";
+type View = "home" | "invitations" | "clients" | "agenda" | "tasks" | "files" | "templates" | "settings";
 type ModalState = { kind: "workspace" | "client" | "task" | "interaction" | "template" | "import" | "bootstrap-invite" | null; data?: unknown };
 type InvitePreview = { workspace_name: string; email: string; role: string };
 type BootstrapAdminInvite = { email: string; url: string };
@@ -25,6 +26,7 @@ const navigation: Array<{ id: View; title: string; icon: typeof LayoutDashboard 
   { id: "clients", title: "Clientes", icon: UsersRound },
   { id: "agenda", title: "Agenda", icon: CalendarDays },
   { id: "tasks", title: "Tarefas", icon: CheckCheck },
+  { id: "files", title: "Arquivos", icon: FolderOpen },
   { id: "templates", title: "Modelos", icon: FolderKanban },
 ];
 
@@ -34,6 +36,7 @@ const viewPaths: Record<View, string> = {
   clients: "/acesso/clientes",
   agenda: "/acesso/agenda",
   tasks: "/acesso/tarefas",
+  files: "/acesso/arquivos",
   templates: "/acesso/modelos",
   settings: "/acesso/equipe",
 };
@@ -187,6 +190,51 @@ function BetaPricingNotice({ className = "" }: { className?: string }) {
   return <aside className={`beta-pricing-notice ${className}`}><span className="eyebrow">FASE DE TESTES</span><b>{BETA_FREE_NOTICE}</b><p>{FUTURE_PRICING_NOTICE}</p></aside>;
 }
 
+const plannedFileTools = [
+  {
+    title: "Documentos",
+    category: "EDITOR DE TEXTO",
+    description: "Criar, revisar e compartilhar documentos da equipe.",
+    formats: "DOCX · ODT · RTF",
+    icon: FileText,
+    tone: "documents",
+  },
+  {
+    title: "Planilhas",
+    category: "EDITOR DE PLANILHAS",
+    description: "Organizar dados e trabalhar em planilhas no navegador.",
+    formats: "XLSX · ODS · CSV",
+    icon: FileSpreadsheet,
+    tone: "spreadsheets",
+  },
+  {
+    title: "PDF",
+    category: "LEITURA E EDIÇÃO",
+    description: "Visualizar, organizar páginas e fazer anotações em PDFs.",
+    formats: "PDF",
+    icon: FileType2,
+    tone: "pdf",
+  },
+];
+
+function FilesPage({ workspace }: { workspace: Workspace }) {
+  return <div className="page files-page">
+    <div className="page-heading"><div><p className="eyebrow">ARQUIVOS DA EQUIPE</p><h1>Arquivos do espaço</h1><p className="page-intro">Uma biblioteca compartilhada com as pessoas que participam de <b>{workspace.name}</b>.</p></div></div>
+    <section className="files-coming-panel panel">
+      <span className="files-coming-icon"><FolderOpen size={22} /></span>
+      <div className="files-coming-copy"><p className="eyebrow">PRÓXIMA ATUALIZAÇÃO</p><h2>Um lugar para os arquivos da equipe</h2><p>Pastas, busca, histórico de versões e edição compartilhada serão habilitados junto com as ferramentas abaixo.</p></div>
+      <span className="coming-soon-badge">Em preparação</span>
+    </section>
+    <div className="files-tool-heading"><div><p className="eyebrow">FERRAMENTAS PLANEJADAS</p><h2>Abra e edite no navegador</h2></div><span>Disponíveis em uma próxima atualização</span></div>
+    <div className="files-tool-grid">{plannedFileTools.map(({ title, category, description, formats, icon: Icon, tone }) => <article className="file-tool-card panel" key={title}>
+      <div className={`file-tool-icon file-tool-${tone}`}><Icon size={21} strokeWidth={1.8} /></div>
+      <div className="file-tool-copy"><p className="eyebrow">{category}</p><h3>{title}</h3><p>{description}</p></div>
+      <div className="file-tool-bottom"><span className="file-format-list">{formats}</span><button className="button button-secondary" disabled title="Esta ferramenta será ativada em uma próxima atualização"><LockKeyhole size={14} /> Em breve</button></div>
+    </article>)}</div>
+    <aside className="files-privacy-note"><ShieldCheck size={17} /><span><b>Privacidade do espaço</b><small>Os arquivos ficarão disponíveis apenas para pessoas autenticadas que participam deste espaço.</small></span></aside>
+  </div>;
+}
+
 function WorkspaceShell(props: {
   user: AppUser; workspaces: Workspace[]; active: Workspace; view: View; setView: (view: View) => void;
   modal: ModalState; setModal: (modal: ModalState) => void; mobileNav: boolean; setMobileNav: (value: boolean) => void;
@@ -225,6 +273,7 @@ function WorkspaceShell(props: {
         {view === "clients" && <ClientsPage workspace={active} version={dataVersion} setModal={setModal} />}
         {view === "agenda" && <AgendaPage workspace={active} user={user} version={dataVersion} setModal={setModal} />}
         {view === "tasks" && <TasksPage workspace={active} version={dataVersion} setModal={setModal} setNotice={setNotice} />}
+        {view === "files" && <FilesPage workspace={active} />}
         {view === "templates" && <TemplatesPage workspace={active} version={dataVersion} setModal={setModal} setNotice={setNotice} />}
         {view === "settings" && <SettingsPage workspace={active} user={user} version={dataVersion} setNotice={setNotice} setModal={setModal} reloadWorkspaces={props.onReloadWorkspaces} />}
       </div>

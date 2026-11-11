@@ -4,7 +4,7 @@ Primeiro protótipo de uma plataforma gratuita e aberta para organizar clientes,
 
 ## Recursos desta primeira versão
 
-- Landing page principal em `/`; o sistema fica em `/acesso`. A navegação do app usa `/acesso` (visão geral), `/acesso/convites`, `/acesso/clientes`, `/acesso/agenda`, `/acesso/tarefas`, `/acesso/modelos` e `/acesso/equipe`. Convites por código usam `/acesso/join/:codigo`.
+- Landing page principal em `/`; o sistema fica em `/acesso`. A navegação do app usa `/acesso` (visão geral), `/acesso/convites`, `/acesso/clientes`, `/acesso/agenda`, `/acesso/tarefas`, `/acesso/arquivos`, `/acesso/modelos` e `/acesso/equipe`. Convites por código usam `/acesso/join/:codigo`.
 - Conta com e-mail e senha, exigindo nome completo, com entrada por Google preparada para receber as credenciais OAuth da Agência Gama.
 - Cadastro com confirmação de senha, exibição e indicador de força; exige 12 caracteres, letras maiúsculas e minúsculas, número e símbolo.
 - Cadastro aberto na fase de testes; cada conta pode ser proprietária de até três espaços. A API aplica o limite.
@@ -14,6 +14,7 @@ Primeiro protótipo de uma plataforma gratuita e aberta para organizar clientes,
 - Convite inicial para os e-mails de administração definidos no segredo `INITIAL_ADMIN_EMAILS` do Worker.
 - Cadastro de clientes, status, fidelização, retorno e histórico de atendimentos.
 - Agenda da equipe e itens pessoais, além de lista de tarefas.
+- Área de arquivos com placeholders para Documentos, Planilhas e PDF; armazenamento e editores serão implementados em atualização futura.
 - Modelos editáveis de jornadas, aplicáveis aos clientes.
 - Importação de clientes por CSV ou exportação do Notion em ZIP, com seleção e mapeamento de colunas.
 - Exportação em JSON (dados do espaço) e CSV (lista de clientes).
@@ -54,3 +55,7 @@ As cores seguem o brandbook da Agência Gama: laranja `#F65A1E`, laranja escuro 
 ## Escopo do protótipo
 
 O Gama Work está em fase de testes gratuita. Não há assinatura nem cobrança ativa. Valores informativos previstos para o futuro: R$ 29,90/mês pelo espaço principal, R$ 9,90/mês por espaço adicional e R$ 9,90/mês por convidado além dos três incluídos. O produto poderá se tornar pago futuramente, inclusive sem aviso prévio. Integração com WhatsApp, colaboração em documentos no estilo Notion e importação completa de todas as bases do Notion ficam para atualizações futuras.
+
+## Arquivos e editores planejados
+
+`/acesso/arquivos` apresenta os placeholders das ferramentas. A pesquisa técnica, os pontos de licença e a arquitetura da próxima etapa estão em [`docs/ROADMAP_ARQUIVOS.md`](docs/ROADMAP_ARQUIVOS.md).
