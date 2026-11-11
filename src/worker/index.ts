@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { createAuth } from "./auth";
+import { isFullName, normalizeFullName } from "../lib/validation";
 import type { AppEnv } from "./types";
 import workspaceRoutes from "./routes/workspaces";
 import inviteRoutes from "./routes/invites";
@@ -37,7 +38,9 @@ app.get("/api/config", (c) =>
 app.on(["GET", "POST"], "/api/auth/*", async (c) => {
   if (c.req.method === "POST" && c.req.path === "/api/auth/sign-up/email") {
     try {
-      const body = await c.req.raw.clone().json() as { password?: unknown };
+      const body = await c.req.raw.clone().json() as { password?: unknown; name?: unknown };
+      const name = normalizeFullName(body.name);
+      if (!isFullName(name)) return c.json({ message: "Informe seu nome e sobrenome para criar a conta." }, 400);
       const password = typeof body.password === "string" ? body.password : "";
       const strong = password.length >= 12
         && /[a-z]/.test(password)

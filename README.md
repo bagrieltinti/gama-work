@@ -5,7 +5,7 @@ Primeiro protótipo de uma plataforma interna para organizar clientes, atendimen
 ## Recursos desta primeira versão
 
 - Landing page de apresentação em `/landing`; o sistema de equipes permanece em `/`.
-- Conta com e-mail e senha, com entrada por Google preparada para receber as credenciais OAuth da Agência Gama.
+- Conta com e-mail e senha, exigindo nome completo, com entrada por Google preparada para receber as credenciais OAuth da Agência Gama.
 - Cadastro com confirmação de senha, exibição e indicador de força; exige 12 caracteres, letras maiúsculas e minúsculas, número e símbolo.
 - Espaços de trabalho isolados por empresa, com troca entre espaços, criação e personalização pela proprietária.
 - Acesso por convite da proprietária, com papéis de proprietária, administradora e colaboradora.

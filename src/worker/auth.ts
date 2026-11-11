@@ -4,6 +4,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { drizzle } from "drizzle-orm/d1";
 import { authSchema } from "../database/schema";
 import type { WorkerEnv } from "../../cloudflare.config";
+import { isFullName, normalizeFullName } from "../lib/validation";
 
 export function createAuth(env: WorkerEnv, request: Request) {
   const origin = new URL(request.url).origin;
@@ -37,9 +38,15 @@ export function createAuth(env: WorkerEnv, request: Request) {
       user: {
         create: {
           before: async (user) => {
+            const name = normalizeFullName(user.name);
+            if (!isFullName(name)) {
+              throw new APIError("BAD_REQUEST", {
+                message: "Informe seu nome e sobrenome para criar a conta.",
+              });
+            }
             const email = user.email.trim().toLowerCase();
             const initialOwner = env.INITIAL_OWNER_EMAIL.trim().toLowerCase();
-            if (email === initialOwner) return { data: { ...user, email } };
+            if (email === initialOwner) return { data: { ...user, email, name } };
 
             const invitation = await env.DB.prepare(
               `SELECT id FROM workspace_invites
@@ -55,7 +62,7 @@ export function createAuth(env: WorkerEnv, request: Request) {
               });
             }
 
-            return { data: { ...user, email } };
+            return { data: { ...user, email, name } };
           },
         },
       },

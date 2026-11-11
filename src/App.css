@@ -445,6 +445,7 @@ kbd { display: inline-flex; align-items: center; gap: 2px; padding: 2px 5px; bor
 .invite-banner strong { font-weight: 600; }
 .auth-form { display: grid; gap: 12px; }
 .auth-form .field-label { gap: 5px; font-size: 13px; }
+.auth-form .name-note { color: #a29b91; font-size: 11px; font-weight: 400; }
 .auth-form .field-label input { min-height: 41px; padding: 9px 11px; }
 .auth-form .field-label input[readonly] { background: #f8f6f2; color: #898379; }
 .password-field { position: relative; display: block; }

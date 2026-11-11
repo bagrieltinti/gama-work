@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { ArrowRight, BriefcaseBusiness, Check, Eye, EyeOff, Sparkles } from "lucide-react";
 import { authClient } from "../lib/auth-client";
+import { isFullName, normalizeFullName } from "../lib/validation";
 import { BrandMark } from "./BrandMark";
 
 interface AuthScreenProps {
@@ -26,9 +27,10 @@ export function AuthScreen({ googleEnabled, invitation, onAuthenticated }: AuthS
     setBusy(true);
     try {
       if (mode === "register") {
+        if (!isFullName(name)) throw new Error("Informe seu nome e sobrenome para criar a conta.");
         if (password !== confirmPassword) throw new Error("As senhas não coincidem.");
         if (!isStrongPassword(password)) throw new Error("Sua senha precisa atender a todos os critérios de segurança.");
-        const result = await authClient.signUp.email({ name: name.trim(), email: email.trim().toLowerCase(), password });
+        const result = await authClient.signUp.email({ name: normalizeFullName(name), email: email.trim().toLowerCase(), password });
         if (result.error) throw new Error(result.error.message || "Não foi possível criar sua conta.");
       } else {
         const result = await authClient.signIn.email({ email: email.trim().toLowerCase(), password });
@@ -91,8 +93,9 @@ export function AuthScreen({ googleEnabled, invitation, onAuthenticated }: AuthS
 
           <form className="auth-form" onSubmit={submit}>
             {mode === "register" && (
-              <label className="field-label">Seu nome
-                <input autoComplete="name" required value={name} onChange={(event) => setName(event.target.value)} placeholder="Como a equipe chama você?" />
+              <label className="field-label">Nome completo
+                <input autoComplete="name" required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} placeholder="Nome e sobrenome" />
+                <small className="name-note">Informe seu nome e sobrenome.</small>
               </label>
             )}
             <label className="field-label">E-mail
