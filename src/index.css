@@ -1,0 +1,32 @@
+@import "@fontsource/syne/700.css";
+@import "@fontsource/syne/800.css";
+@import "@fontsource/barlow-condensed/400.css";
+@import "@fontsource/barlow-condensed/500.css";
+@import "@fontsource/barlow-condensed/600.css";
+@import "@fontsource/barlow-condensed/700.css";
+
+:root {
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+  color: #242321;
+  background: #f5f3ee;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --orange: #f65a1e;
+  --orange-dark: #c94412;
+  --graphite: #5f5b55;
+  --cream: #f5f3ee;
+  --ink: #131313;
+  --muted: #868179;
+  --line: #e9e6df;
+  --surface: #fffefa;
+  --heading: "Syne", "Arial", sans-serif;
+  --body: "Barlow Condensed", "Arial Narrow", sans-serif;
+  font-synthesis: none;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button, input, select, textarea { font: inherit; }
+button { color: inherit; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid color-mix(in srgb, var(--orange) 38%, transparent); outline-offset: 2px; }
+::selection { background: #ffd7c7; color: var(--ink); }
