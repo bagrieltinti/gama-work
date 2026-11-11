@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
-import { ArrowRight, BriefcaseBusiness, Check, Sparkles } from "lucide-react";
+import { ArrowRight, BriefcaseBusiness, Check, Eye, EyeOff, Sparkles } from "lucide-react";
 import { authClient } from "../lib/auth-client";
+import { BrandMark } from "./BrandMark";
 
 interface AuthScreenProps {
   googleEnabled: boolean;
@@ -13,6 +14,9 @@ export function AuthScreen({ googleEnabled, invitation, onAuthenticated }: AuthS
   const [name, setName] = useState("");
   const [email, setEmail] = useState(invitation?.email ?? "");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -22,6 +26,8 @@ export function AuthScreen({ googleEnabled, invitation, onAuthenticated }: AuthS
     setBusy(true);
     try {
       if (mode === "register") {
+        if (password !== confirmPassword) throw new Error("As senhas não coincidem.");
+        if (!isStrongPassword(password)) throw new Error("Sua senha precisa atender a todos os critérios de segurança.");
         const result = await authClient.signUp.email({ name: name.trim(), email: email.trim().toLowerCase(), password });
         if (result.error) throw new Error(result.error.message || "Não foi possível criar sua conta.");
       } else {
@@ -50,7 +56,7 @@ export function AuthScreen({ googleEnabled, invitation, onAuthenticated }: AuthS
   return (
     <main className="auth-layout">
       <section className="auth-story">
-        <div className="auth-brand"><span className="brand-mark">G</span><span>GAMA <b>WORK</b></span></div>
+        <div className="auth-brand"><BrandMark /><span>GAMA <b>WORK</b></span></div>
         <div className="auth-story-copy">
           <p className="eyebrow">UM ESPAÇO PARA TRABALHAR EM EQUIPE</p>
           <h1>O trabalho<br />em um só lugar.</h1>
@@ -66,7 +72,7 @@ export function AuthScreen({ googleEnabled, invitation, onAuthenticated }: AuthS
 
       <section className="auth-panel">
         <div className="auth-card">
-          <div className="auth-mobile-brand"><span className="brand-mark">G</span><span>GAMA <b>WORK</b></span></div>
+          <div className="auth-mobile-brand"><BrandMark /><span>GAMA <b>WORK</b></span></div>
           {invitation && (
             <div className="invite-banner">
               <BriefcaseBusiness size={18} />
@@ -93,8 +99,25 @@ export function AuthScreen({ googleEnabled, invitation, onAuthenticated }: AuthS
               <input autoComplete="email" type="email" required value={email} readOnly={Boolean(invitation)} onChange={(event) => setEmail(event.target.value)} placeholder="voce@empresa.com.br" />
             </label>
             <label className="field-label">Senha
-              <input autoComplete={mode === "login" ? "current-password" : "new-password"} type="password" minLength={10} required value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Pelo menos 10 caracteres" />
+              <span className="password-field"><input autoComplete={mode === "login" ? "current-password" : "new-password"} type={showPassword ? "text" : "password"} minLength={mode === "register" ? 12 : 10} required value={password} onChange={(event) => setPassword(event.target.value)} placeholder={mode === "register" ? "Crie uma senha forte" : "Sua senha"} /><button className="password-toggle" type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? "Ocultar senha" : "Exibir senha"} aria-pressed={showPassword}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span>
             </label>
+            {mode === "register" && <>
+              <div className="password-strength" aria-live="polite">
+                <div className="strength-heading"><span>Força da senha</span><b className={`strength-label strength-${passwordStrength(password).level}`}>{passwordStrength(password).label}</b></div>
+                <div className="strength-track" role="meter" aria-label="Força da senha" aria-valuemin={0} aria-valuemax={5} aria-valuenow={passwordStrength(password).score}><span className={`strength-fill strength-fill-${passwordStrength(password).level}`} style={{ width: `${passwordStrength(password).score * 20}%` }} /></div>
+                <ul className="password-rules">
+                  <PasswordRule met={password.length >= 12} label="12 caracteres" />
+                  <PasswordRule met={/[a-z]/.test(password)} label="Letra minúscula" />
+                  <PasswordRule met={/[A-Z]/.test(password)} label="Letra maiúscula" />
+                  <PasswordRule met={/\d/.test(password)} label="Número" />
+                  <PasswordRule met={/[^A-Za-z0-9]/.test(password)} label="Símbolo" />
+                </ul>
+              </div>
+              <label className="field-label">Confirme sua senha
+                <span className="password-field"><input autoComplete="new-password" type={showConfirmPassword ? "text" : "password"} required value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} placeholder="Digite a senha novamente" aria-invalid={Boolean(confirmPassword && confirmPassword !== password)} /><button className="password-toggle" type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} aria-label={showConfirmPassword ? "Ocultar confirmação de senha" : "Exibir confirmação de senha"} aria-pressed={showConfirmPassword}>{showConfirmPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button></span>
+                {confirmPassword && <small className={`confirm-hint ${confirmPassword === password ? "confirm-match" : "confirm-mismatch"}`}>{confirmPassword === password ? "As senhas coincidem." : "As senhas ainda não coincidem."}</small>}
+              </label>
+            </>}
             {error && <div className="form-error" role="alert">{error}</div>}
             <button className="button button-primary button-full" type="submit" disabled={busy}>
               {busy ? "Aguarde…" : mode === "login" ? "Entrar" : "Criar conta"}
@@ -123,4 +146,19 @@ export function AuthScreen({ googleEnabled, invitation, onAuthenticated }: AuthS
 
 function GoogleMark() {
   return <span className="google-mark" aria-hidden="true">G</span>;
+}
+
+function passwordStrength(password: string) {
+  const score = [password.length >= 12, /[a-z]/.test(password), /[A-Z]/.test(password), /\d/.test(password), /[^A-Za-z0-9]/.test(password)].filter(Boolean).length;
+  const level = score >= 5 ? "strong" : score >= 3 ? "medium" : score > 0 ? "weak" : "empty";
+  const label = level === "strong" ? "Forte" : level === "medium" ? "Média" : level === "weak" ? "Fraca" : "Digite uma senha";
+  return { score, level, label };
+}
+
+function isStrongPassword(password: string) {
+  return password.length >= 12 && /[a-z]/.test(password) && /[A-Z]/.test(password) && /\d/.test(password) && /[^A-Za-z0-9]/.test(password);
+}
+
+function PasswordRule({ met, label }: { met: boolean; label: string }) {
+  return <li className={met ? "password-rule-met" : ""}><Check size={12} aria-hidden="true" />{label}</li>;
 }

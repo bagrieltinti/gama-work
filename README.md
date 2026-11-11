@@ -4,9 +4,12 @@ Primeiro protótipo de uma plataforma interna para organizar clientes, atendimen
 
 ## Recursos desta primeira versão
 
+- Landing page de apresentação em `/landing`; o sistema de equipes permanece em `/`.
 - Conta com e-mail e senha, com entrada por Google preparada para receber as credenciais OAuth da Agência Gama.
+- Cadastro com confirmação de senha, exibição e indicador de força; exige 12 caracteres, letras maiúsculas e minúsculas, número e símbolo.
 - Espaços de trabalho isolados por empresa, com troca entre espaços, criação e personalização pela proprietária.
 - Acesso por convite da proprietária, com papéis de proprietária, administradora e colaboradora.
+- Convite inicial para os e-mails de administração definidos no segredo `INITIAL_ADMIN_EMAILS` do Worker.
 - Cadastro de clientes, status, fidelização, retorno e histórico de atendimentos.
 - Agenda da equipe e itens pessoais, além de lista de tarefas.
 - Modelos editáveis de jornadas, aplicáveis aos clientes.
@@ -29,11 +32,11 @@ npm install
 npm run dev
 ```
 
-O login e as rotas de dados locais precisam de uma instância D1 e dos segredos `BETTER_AUTH_SECRET`, `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET`. O e-mail inicial da proprietária está definido como `empresa@agenciagama.com.br`. Veja `cloudflare.config.ts` e `migrations/0001_initial.sql`.
+O login e as rotas de dados locais precisam de uma instância D1 e dos segredos `BETTER_AUTH_SECRET`, `INITIAL_ADMIN_EMAILS`, `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET`. `INITIAL_ADMIN_EMAILS` aceita uma lista separada por vírgulas, ponto e vírgula ou quebras de linha. O e-mail inicial da proprietária está definido como `empresa@agenciagama.com.br`. Veja `cloudflare.config.ts` e `migrations/0001_initial.sql`.
 
 ## Deploy
 
-O projeto usa a CLI `cf` do Cloudflare:
+O projeto usa a CLI `cf` do Cloudflare. O deploy mantém os bindings do Worker configurados na conta da Agência Gama:
 
 ```bash
 npm run build
@@ -44,7 +47,7 @@ Antes do primeiro deploy, configure a base D1 e os segredos no ambiente da conta
 
 ## Identidade visual
 
-As cores seguem o brandbook da Agência Gama: laranja `#F65A1E`, laranja escuro `#C94412`, grafite `#5F5B55`, branco `#F5F3EE` e preto `#131313`. O protótipo usa Syne para títulos e Barlow Condensed para interface e conteúdo. A fonte Khavix indicada no brandbook não veio incluída nos arquivos, então não é usada nesta versão.
+As cores seguem o brandbook da Agência Gama: laranja `#F65A1E`, laranja escuro `#C94412`, grafite `#5F5B55`, branco `#F5F3EE` e preto `#131313`. A marca oficial é usada a partir de `public/gama-mark.png`. O protótipo usa Syne para títulos e Barlow Condensed para interface e conteúdo. A fonte Khavix indicada no brandbook não veio incluída nos arquivos, então não é usada nesta versão.
 
 ## Escopo do protótipo
 

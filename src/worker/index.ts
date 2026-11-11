@@ -34,7 +34,23 @@ app.get("/api/config", (c) =>
   c.json({ googleEnabled: Boolean(c.env.GOOGLE_CLIENT_ID && c.env.GOOGLE_CLIENT_SECRET) }),
 );
 
-app.on(["GET", "POST"], "/api/auth/*", (c) => createAuth(c.env, c.req.raw).handler(c.req.raw));
+app.on(["GET", "POST"], "/api/auth/*", async (c) => {
+  if (c.req.method === "POST" && c.req.path === "/api/auth/sign-up/email") {
+    try {
+      const body = await c.req.raw.clone().json() as { password?: unknown };
+      const password = typeof body.password === "string" ? body.password : "";
+      const strong = password.length >= 12
+        && /[a-z]/.test(password)
+        && /[A-Z]/.test(password)
+        && /\d/.test(password)
+        && /[^A-Za-z0-9]/.test(password);
+      if (!strong) return c.json({ message: "Use pelo menos 12 caracteres, com letras maiúsculas e minúsculas, número e símbolo." }, 400);
+    } catch {
+      return c.json({ message: "Não foi possível validar a senha informada." }, 400);
+    }
+  }
+  return createAuth(c.env, c.req.raw).handler(c.req.raw);
+});
 app.route("/api/workspaces", workspaceRoutes);
 app.route("/api/invites", inviteRoutes);
 app.route("/api/workspaces/:workspaceId/clients", clientRoutes);

@@ -8,14 +8,16 @@ import {
 import JSZip from "jszip";
 import Papa from "papaparse";
 import { AuthScreen } from "./components/AuthScreen";
+import { BrandMark } from "./components/BrandMark";
 import { api, downloadBlob, formatDate, formatTime, json, patchJson, toDateTimeLocal } from "./lib/api";
 import { authClient } from "./lib/auth-client";
 import type { AppUser, Client, Interaction, Invitation, JourneyTemplate, Member, Task, Workspace } from "./types";
 import "./App.css";
 
 type View = "home" | "clients" | "agenda" | "tasks" | "templates" | "settings";
-type ModalState = { kind: "workspace" | "client" | "task" | "interaction" | "template" | "import" | null; data?: unknown };
+type ModalState = { kind: "workspace" | "client" | "task" | "interaction" | "template" | "import" | "bootstrap-invite" | null; data?: unknown };
 type InvitePreview = { workspace_name: string; email: string; role: string };
+type BootstrapAdminInvite = { email: string; url: string };
 const navigation: Array<{ id: View; title: string; icon: typeof LayoutDashboard }> = [
   { id: "home", title: "Visão geral", icon: LayoutDashboard },
   { id: "clients", title: "Clientes", icon: UsersRound },
@@ -82,9 +84,9 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
-  if (!authReady || loading) return <div className="loading-screen"><span className="brand-mark">G</span><span>Preparando seu espaço…</span></div>;
+  if (!authReady || loading) return <div className="loading-screen"><BrandMark /><span>Preparando seu espaço…</span></div>;
   if (!user) return <AuthScreen googleEnabled={googleEnabled} invitation={invitation} onAuthenticated={refreshApp} />;
-  if (!workspaces.length) return <WelcomeScreen user={user} onCreate={() => setModal({ kind: "workspace" })} modal={modal} close={() => setModal({ kind: null })} onCreated={loadWorkspaces} />;
+  if (!workspaces.length) return <WelcomeScreen user={user} onCreate={() => setModal({ kind: "workspace" })} modal={modal} setModal={setModal} close={() => setModal({ kind: null })} onCreated={loadWorkspaces} />;
 
   const active = workspaces.find((space) => space.id === activeId) ?? workspaces[0];
   return <WorkspaceShell
@@ -95,11 +97,16 @@ export default function App() {
   />;
 }
 
-function WelcomeScreen({ user, onCreate, modal, close, onCreated }: { user: AppUser; onCreate: () => void; modal: ModalState; close: () => void; onCreated: () => Promise<void> }) {
+function WelcomeScreen({ user, onCreate, modal, setModal, close, onCreated }: { user: AppUser; onCreate: () => void; modal: ModalState; setModal: (modal: ModalState) => void; close: () => void; onCreated: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   async function createSpace(values: Record<string, unknown>) {
     setBusy(true);
-    try { await api("workspaces", json(values)); await onCreated(); close(); }
+    try {
+      const response = await api<{ bootstrapAdminInvites?: BootstrapAdminInvite[] }>("workspaces", json(values));
+      await onCreated();
+      if (response.bootstrapAdminInvites?.length) setModal({ kind: "bootstrap-invite", data: response.bootstrapAdminInvites });
+      else close();
+    }
     finally { setBusy(false); }
   }
   return <main className="welcome-page"><div className="welcome-brand"><BrandMark /> <span>GAMA <b>WORK</b></span></div>
@@ -153,6 +160,7 @@ function WorkspaceShell(props: {
       </div>
     </main>
     {modal.kind === "workspace" && <WorkspaceModal onClose={() => setModal({ kind: null })} onSave={async (values) => { const result = await api<{ workspace: Workspace }>("workspaces", json(values)); await props.onReloadWorkspaces(); props.onSwitch(result.workspace.id); setView("home"); reload(); setModal({ kind: null }); setNotice("Espaço criado."); }} />}
+    {modal.kind === "bootstrap-invite" && <BootstrapAdminInviteModal invites={modal.data as BootstrapAdminInvite[]} onClose={() => setModal({ kind: null })} />}
     {modal.kind === "client" && <ClientModal workspace={active} data={modal.data as Client | undefined} onClose={() => setModal({ kind: null })} onSaved={() => { setModal({ kind: null }); reload(); setNotice(modal.data ? "Cliente atualizado." : "Cliente adicionado."); }} />}
     {modal.kind === "task" && <TaskModal workspace={active} data={modal.data as Task | undefined} onClose={() => setModal({ kind: null })} onSaved={() => { setModal({ kind: null }); reload(); setNotice("Item salvo na agenda."); }} />}
     {modal.kind === "interaction" && <InteractionModal workspace={active} client={modal.data as Client} onClose={() => setModal({ kind: null })} onEdit={() => setModal({ kind: "client", data: modal.data })} onSaved={() => { setModal({ kind: null }); reload(); setNotice("Atendimento registrado."); }} />}
@@ -298,6 +306,23 @@ function WorkspaceModal({ onClose, onSave, saving = false }: { onClose: () => vo
   return <Modal title="Criar espaço" eyebrow="NOVO ESPAÇO DE EMPRESA" onClose={onClose}><p className="modal-intro">Cada espaço mantém clientes, agenda e equipe separados. Você poderá personalizar tudo depois.</p><form className="modal-form" onSubmit={(e) => void submit(e)}><label className="field-label">Nome da empresa ou espaço<input autoFocus required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: Agência Gama" /></label><label className="field-label">Descrição <span className="optional">opcional</span><textarea maxLength={280} rows={3} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Uma linha para ajudar a identificar este espaço." /></label><div className="settings-choice-grid"><fieldset className="icon-choice"><legend>Ícone</legend><div>{["briefcase", "sparkles", "users", "layers", "heart", "building"].map((choice) => <button type="button" key={choice} className={icon === choice ? "chosen" : ""} onClick={() => setIcon(choice)} aria-label={choice}>{iconFor(choice)}</button>)}</div></fieldset><fieldset className="color-choice"><legend>Cor</legend><div>{["#F65A1E", "#C94412", "#5F5B55", "#507C70", "#536B98", "#9A6C83"].map((color) => <button type="button" key={color} className={accentColor === color ? "chosen" : ""} style={{ "--swatch": color } as React.CSSProperties} onClick={() => setAccentColor(color)} aria-label={color} />)}</div></fieldset></div>{error && <div className="form-error">{error}</div>}<div className="modal-actions"><button type="button" className="button button-secondary" onClick={onClose}>Cancelar</button><button className="button button-primary" disabled={saving}>{saving ? "Criando…" : "Criar espaço"}<ArrowRight size={16} /></button></div></form></Modal>;
 }
 
+function BootstrapAdminInviteModal({ invites, onClose }: { invites: BootstrapAdminInvite[]; onClose: () => void }) {
+  const [copied, setCopied] = useState("");
+  async function copyInvite(invite: BootstrapAdminInvite) {
+    await navigator.clipboard.writeText(invite.url);
+    setCopied(invite.email);
+  }
+  return <Modal title="Convide a equipe de administração" eyebrow="CONFIGURAÇÃO INICIAL" onClose={onClose}>
+    <p className="modal-intro">O espaço da Agência Gama já está pronto. Compartilhe este convite com cada administradora para liberar o acesso.</p>
+    <div className="bootstrap-invite-list">{invites.map((invite) => <div className="bootstrap-invite-card" key={invite.email}>
+      <div><b>{invite.email}</b><small>Administradora · válido por 7 dias</small></div>
+      <input aria-label={`Link de convite para ${invite.email}`} readOnly value={invite.url} onFocus={(event) => event.currentTarget.select()} />
+      <button className="button button-secondary" onClick={() => void copyInvite(invite)}><Check size={15} />{copied === invite.email ? "Link copiado" : "Copiar convite"}</button>
+    </div>)}</div>
+    <div className="modal-actions"><button className="button button-primary" onClick={onClose}>Concluir <ArrowRight size={15} /></button></div>
+  </Modal>;
+}
+
 function ClientModal({ workspace, data, onClose, onSaved }: { workspace: Workspace; data?: Client; onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState({ name: data?.name || "", email: data?.email || "", phone: data?.phone || "", product: data?.product || "", status: (data?.status || "active") as Client["status"], isFidelized: Boolean(data?.is_fidelized), nextFollowupAt: toDateTimeLocal(data?.next_followup_at), notes: data?.notes || "" }); const [error, setError] = useState("");
   async function submit(e: FormEvent) { e.preventDefault(); setError(""); try { const body = { ...form, nextFollowupAt: form.nextFollowupAt ? new Date(form.nextFollowupAt).toISOString() : null }; if (data) await api(`workspaces/${workspace.id}/clients/${data.id}`, patchJson(body)); else await api(`workspaces/${workspace.id}/clients`, json(body)); onSaved(); } catch (err) { setError(errorText(err)); } }
@@ -349,6 +374,5 @@ function Modal({ title, eyebrow, onClose, children, wide = false }: { title: str
 function EmptyState({ icon, title, detail, action }: { icon: ReactNode; title: string; detail: string; action?: ReactNode }) { return <div className="empty-state"><span className="empty-icon">{icon}</span><h3>{title}</h3><p>{detail}</p>{action && <div className="empty-action">{action}</div>}</div>; }
 function LoadingRows() { return <div className="loading-rows"><span /><span /><span /></div>; }
 function Avatar({ name, small = false }: { name: string; small?: boolean }) { const initials = name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toLocaleUpperCase("pt-BR"); return <span className={`avatar ${small ? "avatar-small" : ""}`} aria-hidden="true">{initials}</span>; }
-function BrandMark() { return <span className="brand-mark" aria-hidden="true">G</span>; }
 function iconFor(value: string) { const props = { size: 18, strokeWidth: 1.9 }; if (value === "sparkles") return <Sparkles {...props} />; if (value === "users") return <UsersRound {...props} />; if (value === "layers") return <FolderKanban {...props} />; if (value === "heart") return <Activity {...props} />; if (value === "building") return <BriefcaseBusiness {...props} />; return <BriefcaseBusiness {...props} />; }
 function errorText(error: unknown) { return error instanceof Error ? error.message : "Não foi possível concluir esta ação."; }

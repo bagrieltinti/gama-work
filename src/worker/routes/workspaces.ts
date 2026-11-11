@@ -56,6 +56,8 @@ routes.post("/", async (c) => {
   if (!existingOwner && !isInitialOwner) {
     return c.json({ error: "A criação de espaços está disponível para proprietárias de um espaço." }, 403);
   }
+  const workspaceBefore = await c.env.DB.prepare("SELECT 1 AS yes FROM workspaces LIMIT 1").first<{ yes: number }>();
+  const isFirstWorkspace = !workspaceBefore && isInitialOwner;
 
   const id = crypto.randomUUID();
   const now = Date.now();
@@ -80,8 +82,41 @@ routes.post("/", async (c) => {
   ];
   await c.env.DB.batch(statements);
 
+  const bootstrapAdminInvites: Array<{ email: string; url: string }> = [];
+  if (isFirstWorkspace) {
+    const adminEmails = [...new Set((c.env.INITIAL_ADMIN_EMAILS || "").split(/[\n,;]+/).map((email) => email.trim().toLowerCase()).filter(Boolean))];
+    for (const email of adminEmails) {
+      if (email === user.email.toLowerCase()) continue;
+      const existingUser = await c.env.DB.prepare("SELECT id FROM user WHERE lower(email) = ? LIMIT 1")
+        .bind(email)
+        .first<{ id: string }>();
+      if (existingUser) {
+        await c.env.DB.prepare(
+          `INSERT INTO workspace_members (workspace_id, user_id, role, joined_at)
+           SELECT ?, ?, 'admin', ? WHERE NOT EXISTS
+           (SELECT 1 FROM workspace_members WHERE workspace_id = ? AND user_id = ?)`,
+        ).bind(id, existingUser.id, Date.now(), id, existingUser.id).run();
+        continue;
+      }
+
+      const existingInvite = await c.env.DB.prepare(
+        "SELECT 1 AS yes FROM workspace_invites WHERE workspace_id = ? AND lower(email) = ? AND accepted_at IS NULL AND expires_at > ? LIMIT 1",
+      ).bind(id, email, Date.now()).first<{ yes: number }>();
+      if (existingInvite) continue;
+
+      const token = randomToken();
+      const nowInvite = Date.now();
+      await c.env.DB.prepare(
+        `INSERT INTO workspace_invites (id, workspace_id, email, role, token_hash, invited_by, expires_at, created_at)
+         VALUES (?, ?, ?, 'admin', ?, ?, ?, ?)`,
+      ).bind(crypto.randomUUID(), id, email, await hashText(token), user.id, nowInvite + 7 * 24 * 60 * 60 * 1000, nowInvite).run();
+      bootstrapAdminInvites.push({ email, url: new URL(`/join/${token}`, c.req.url).toString() });
+    }
+  }
+
   return c.json({
     workspace: { id, name, description, icon, accent_color: color, role: "owner" },
+    bootstrapAdminInvites,
   }, 201);
 });
 

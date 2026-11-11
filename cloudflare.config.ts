@@ -8,6 +8,7 @@ const worker = {
   env: {
     DB: bindings.d1({ name: "gama-work-db", id: "1f723c9d-a5b8-4284-af76-73daabf7ccad" }),
     INITIAL_OWNER_EMAIL: bindings.text("empresa@agenciagama.com.br"),
+    INITIAL_ADMIN_EMAILS: bindings.secret(),
     BETTER_AUTH_SECRET: bindings.secret(),
     GOOGLE_CLIENT_ID: bindings.secret(),
     GOOGLE_CLIENT_SECRET: bindings.secret(),

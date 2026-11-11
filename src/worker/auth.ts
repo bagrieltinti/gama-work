@@ -21,7 +21,7 @@ export function createAuth(env: WorkerEnv, request: Request) {
     }),
     emailAndPassword: {
       enabled: true,
-      minPasswordLength: 10,
+      minPasswordLength: 12,
       maxPasswordLength: 128,
     },
     socialProviders: googleEnabled
