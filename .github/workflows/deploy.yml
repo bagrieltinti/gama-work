@@ -47,7 +47,7 @@ jobs:
 
       - name: Deploy Worker
         if: steps.cloudflare-token.outputs.configured == 'true'
-        run: npm run deploy
+        run: npm run deploy -- --force
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: 64b28e462c805217c32b7af379200fe8
