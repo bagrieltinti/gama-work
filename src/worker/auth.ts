@@ -8,7 +8,17 @@ import { isFullName, normalizeFullName } from "../lib/validation";
 
 export function createAuth(env: WorkerEnv, request: Request) {
   const origin = new URL(request.url).origin;
-  const googleEnabled = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET);
+  const googleClientId = env.GOOGLE_CLIENT_ID;
+  const googleClientSecret = env.GOOGLE_CLIENT_SECRET;
+  const socialProviders = googleClientId && googleClientSecret
+    ? {
+        google: {
+          clientId: googleClientId,
+          clientSecret: googleClientSecret,
+          prompt: "select_account" as const,
+        },
+      }
+    : {};
 
   return betterAuth({
     appName: "Gama Work",
@@ -25,15 +35,7 @@ export function createAuth(env: WorkerEnv, request: Request) {
       minPasswordLength: 12,
       maxPasswordLength: 128,
     },
-    socialProviders: googleEnabled
-      ? {
-          google: {
-            clientId: env.GOOGLE_CLIENT_ID,
-            clientSecret: env.GOOGLE_CLIENT_SECRET,
-            prompt: "select_account",
-          },
-        }
-      : {},
+    socialProviders,
     databaseHooks: {
       user: {
         create: {

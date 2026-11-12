@@ -11,8 +11,6 @@ const worker = {
     INITIAL_OWNER_EMAIL: bindings.text("empresa@agenciagama.com.br"),
     INITIAL_ADMIN_EMAILS: bindings.secret(),
     BETTER_AUTH_SECRET: bindings.secret(),
-    GOOGLE_CLIENT_ID: bindings.secret(),
-    GOOGLE_CLIENT_SECRET: bindings.secret(),
   },
   assets: {
     notFoundHandling: "single-page-application" as const,
@@ -25,6 +23,9 @@ const worker = {
   },
 };
 
-export type WorkerEnv = InferEnv<UnwrapConfig<typeof worker>>;
+export type WorkerEnv = InferEnv<UnwrapConfig<typeof worker>> & {
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+};
 
 export default defineConfig({ worker });
