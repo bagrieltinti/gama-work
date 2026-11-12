@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowDownToLine, Check, ChevronRight, FileText, Folder,
-  FolderPlus, History, MoreHorizontal, Pencil, Plus, RotateCcw, Search,
+  ArrowDownToLine, Check, ChevronRight, CloudOff, FileText, Folder,
+  FolderPlus, HardDrive, History, MoreHorizontal, Pencil, Plus, RotateCcw, Search,
   ShieldCheck, Trash2, Upload, X,
 } from "lucide-react";
 import JSZip from "jszip";
-import { api, formatDate, json } from "../lib/api";
+import { api, downloadBlob, formatDate, json } from "../lib/api";
+import { bytesBuffer, deleteLocalFile, listLocalFiles, saveLocalFile, type LocalWorkspaceFile } from "../lib/local-files";
 import type { AppUser, Workspace } from "../types";
 import { TextEditorPage } from "./TextEditorPage";
 
@@ -28,6 +29,7 @@ interface FolderRow { id: string; workspace_id: string; parent_folder_id: string
 interface FolderTreeRow { id: string; parent_folder_id: string | null; name: string }
 interface FileVersion { id: string; file_id: string; version_number: number; size: number; content_type: string; created_at: number; created_by_name?: string }
 interface LibraryData {
+  driveConnected: boolean;
   files: WorkspaceFile[];
   folders: FolderRow[];
   folderTree: FolderTreeRow[];
@@ -81,6 +83,7 @@ export function FilesPage({ workspace, user, onNotice }: { workspace: Workspace;
   const [search, setSearch] = useState("");
   const [trash, setTrash] = useState(false);
   const [data, setData] = useState<LibraryData | null>(null);
+  const [localFiles, setLocalFiles] = useState<LocalWorkspaceFile[]>([]);
   const [trashFiles, setTrashFiles] = useState<WorkspaceFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -90,6 +93,9 @@ export function FilesPage({ workspace, user, onNotice }: { workspace: Workspace;
   const [moveFile, setMoveFile] = useState<WorkspaceFile | null>(null);
   const [moveTarget, setMoveTarget] = useState("");
   const fileInput = useRef<HTMLInputElement>(null);
+  const reloadLocalFiles = useCallback(async () => {
+    setLocalFiles(await listLocalFiles(workspace.id));
+  }, [workspace.id]);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -102,7 +108,9 @@ export function FilesPage({ workspace, user, onNotice }: { workspace: Workspace;
         if (folderId) params.set("folderId", folderId);
         if (search) params.set("q", search);
         const suffix = params.size ? `?${params}` : "";
-        setData(await api<LibraryData>(`workspaces/${workspace.id}/files${suffix}`));
+        const result = await api<LibraryData>(`workspaces/${workspace.id}/files${suffix}`);
+        setData(result);
+        setLocalFiles(await listLocalFiles(workspace.id));
       }
     } catch (issue) { setError(message(issue)); }
     finally { setLoading(false); }
@@ -157,6 +165,14 @@ export function FilesPage({ workspace, user, onNotice }: { workspace: Workspace;
     catch (issue) { setError(message(issue)); }
     finally { setBusy(false); if (fileInput.current) fileInput.current.value = ""; }
   }
+  async function uploadLocalCopy(file: LocalWorkspaceFile) {
+    setBusy(true); setError("");
+    try {
+      await upload(workspace.id, new Blob([file.bytes], { type: file.contentType }), file.name, null);
+      await deleteLocalFile(file.id); await load(); onNotice(`“${file.name}” foi enviado ao Google Drive.`);
+    } catch (issue) { setError(message(issue)); }
+    finally { setBusy(false); }
+  }
   async function createTextDocument() {
     setBusy(true); setError("");
     try {
@@ -206,7 +222,9 @@ export function FilesPage({ workspace, user, onNotice }: { workspace: Workspace;
     void load();
   }
 
-  if (editorFileId) return <TextEditorPage workspace={workspace} user={user} fileId={editorFileId} onExit={exitEditor} onNotice={onNotice} />;
+  if (editorFileId && data?.driveConnected) return <TextEditorPage workspace={workspace} user={user} fileId={editorFileId} onExit={exitEditor} onNotice={onNotice} />;
+  if (editorFileId && data && !data.driveConnected) return <TextEditorPage workspace={workspace} user={user} fileId={editorFileId} localMode onExit={exitEditor} onNotice={onNotice} />;
+  if (data && !data.driveConnected) return <LocalFilesPanel workspace={workspace} files={localFiles} onFilesChanged={reloadLocalFiles} onNotice={onNotice} onOpenEditor={openEditor} />;
 
   const files = trash ? trashFiles : data?.files ?? [];
   return <div className="page files-page">
@@ -220,7 +238,8 @@ export function FilesPage({ workspace, user, onNotice }: { workspace: Workspace;
         <div className="file-breadcrumbs"><button onClick={() => { setTrash(false); setFolderId(null); setQuery(""); }} className={!folderId && !trash ? "current" : ""}>Arquivos</button>{!trash && data?.breadcrumbs.map((crumb) => <span key={crumb.id}><ChevronRight size={14} /><button className={folderId === crumb.id ? "current" : ""} onClick={() => setFolderId(crumb.id)}>{crumb.name}</button></span>)}</div>
         <div className="file-library-controls"><label className="search-field"><Search size={15} /><input value={query} onChange={(event) => { setQuery(event.target.value); setTrash(false); }} placeholder="Buscar arquivos" /></label><button className={`file-trash-toggle ${trash ? "selected" : ""}`} onClick={() => { setTrash(!trash); setQuery(""); setSearch(""); }}><Trash2 size={15} /> Lixeira</button></div>
       </div>
-      {!trash && <div className="file-storage-note"><ShieldCheck size={15} /><span>Arquivos privados do espaço · {formatBytes(data?.usage.bytes ?? 0)} de 1 GB usados, incluindo versões anteriores e itens na lixeira</span></div>}
+      {!trash && <div className="file-storage-note"><ShieldCheck size={15} /><span>Arquivos privados no Google Drive conectado · {formatBytes(data?.usage.bytes ?? 0)} armazenados, incluindo versões anteriores e lixeira</span></div>}
+      {!trash && localFiles.length > 0 && <section className="local-import-notice"><div><b>Cópias locais deste navegador</b><small>Escolha quais deseja enviar para a pasta compartilhada do Drive.</small></div>{localFiles.map((file) => <div className="local-import-row" key={file.id}><span><b>{file.name}</b><small>{formatBytes(file.size)} · somente neste navegador</small></span><button className="button button-secondary" disabled={busy} onClick={() => void uploadLocalCopy(file)}><Upload size={14} /> Enviar ao Drive</button></div>)}</section>}
       {error && <div className="form-error file-error" role="alert">{error}</div>}
       {loading ? <div className="file-empty-state"><span className="file-spinner" />Carregando arquivos…</div> : files.length || (!trash && !search && (data?.folders.length ?? 0) > 0) ? <div className="file-list">
         {!trash && !search && data?.folders.map((folder) => <div className="file-list-row" key={folder.id}>
@@ -250,9 +269,66 @@ export function FilesPage({ workspace, user, onNotice }: { workspace: Workspace;
     <div className="files-tool-grid file-tools-active"><article className="file-tool-card panel"><div className="file-tool-icon file-tool-documents"><FileText size={21} /></div><div className="file-tool-copy"><p className="eyebrow">EDITOR DE TEXTO</p><h3>Texto</h3><p>Crie e edite documentos no navegador, com salvamento compartilhado e histórico de versões.</p></div><div className="file-tool-bottom"><span className="file-format-list">DOCX · ODT · RTF · TXT</span><span className="file-tool-ready"><Check size={14} /> Disponível</span></div></article>
       <article className="file-tool-card panel"><div className="file-tool-icon file-tool-spreadsheets"><FileText size={21} /></div><div className="file-tool-copy"><p className="eyebrow">PLANILHAS</p><h3>Planilhas</h3><p>Os arquivos podem ser armazenados e baixados. O editor de planilhas será integrado em outra atualização.</p></div><div className="file-tool-bottom"><span className="file-format-list">XLSX · ODS · CSV</span><span className="coming-soon-badge">Em preparação</span></div></article>
       <article className="file-tool-card panel"><div className="file-tool-icon file-tool-pdf"><FileText size={21} /></div><div className="file-tool-copy"><p className="eyebrow">LEITURA E EDIÇÃO</p><h3>PDF</h3><p>Os PDFs ficam na biblioteca para baixar. Recursos de visualização e edição vêm depois.</p></div><div className="file-tool-bottom"><span className="file-format-list">PDF</span><span className="coming-soon-badge">Em preparação</span></div></article></div>
-    <aside className="files-privacy-note"><ShieldCheck size={17} /><span><b>Privacidade do espaço</b><small>Os arquivos ficam no armazenamento privado e só podem ser acessados por membros autenticados deste espaço. Cada envio aceita até 20 MB.</small></span></aside>
+    <aside className="files-privacy-note"><ShieldCheck size={17} /><span><b>Privacidade do espaço</b><small>O conteúdo fica na pasta gama-work-files do Drive da proprietária e é entregue apenas a membros autenticados deste espaço. Cada envio aceita até 20 MB.</small></span></aside>
     {versionsFile && <FileVersionsDialog workspaceId={workspace.id} file={versionsFile} onClose={() => setVersionsFile(null)} onRestore={async () => { setVersionsFile(null); await load(); onNotice("Uma nova versão foi restaurada."); }} />}
     {moveFile && <div className="overlay" role="presentation" onClick={() => setMoveFile(null)}><section className="modal file-move-modal" role="dialog" aria-modal="true" aria-labelledby="move-file-title" onClick={(event) => event.stopPropagation()}><div className="modal-heading"><div><p className="eyebrow">ORGANIZAR ARQUIVOS</p><h2 id="move-file-title">Mover arquivo</h2></div><button className="icon-button" onClick={() => setMoveFile(null)} aria-label="Fechar"><X size={18} /></button></div><div className="modal-body"><p className="modal-intro">Escolha a pasta de destino para <b>{moveFile.name}</b>.</p><label className="field-label">Pasta de destino<select className="styled-select" value={moveTarget} onChange={(event) => setMoveTarget(event.target.value)}><option value="">Arquivos (raiz)</option>{folderOptions.filter((option) => option.id !== moveFile.folder_id).map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label><div className="modal-actions"><button className="button button-secondary" onClick={() => setMoveFile(null)}>Cancelar</button><button className="button button-primary" onClick={() => void moveSelected()}>Mover arquivo</button></div></div></section></div>}
+  </div>;
+}
+
+function LocalFilesPanel({ workspace, files, onFilesChanged, onNotice, onOpenEditor }: {
+  workspace: Workspace;
+  files: LocalWorkspaceFile[];
+  onFilesChanged: () => Promise<void>;
+  onNotice: (message: string) => void;
+  onOpenEditor: (fileId: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+  async function storeFile(blob: Blob, name: string, contentType: string) {
+    if (blob.size > 20 * 1024 * 1024) throw new Error("O arquivo ultrapassa o limite de 20 MB.");
+    const time = Date.now();
+    const id = crypto.randomUUID();
+    await saveLocalFile({ id, workspaceId: workspace.id, name, contentType: contentType || "application/octet-stream", size: blob.size, currentVersion: 1, createdAt: time, updatedAt: time, bytes: bytesBuffer(new Uint8Array(await blob.arrayBuffer())) });
+    return id;
+  }
+  async function uploadSelected(file?: File | null) {
+    if (!file) return;
+    setBusy(true); setError("");
+    try { await storeFile(file, file.name, file.type); await onFilesChanged(); onNotice("Arquivo salvo apenas neste navegador."); }
+    catch (issue) { setError(issue instanceof Error ? issue.message : "Não foi possível salvar localmente."); }
+    finally { setBusy(false); if (input.current) input.current.value = ""; }
+  }
+  async function createTextDocument() {
+    setBusy(true); setError("");
+    try { const blob = await blankDocx(); const id = await storeFile(blob, "Novo documento.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"); await onFilesChanged(); onOpenEditor(id); }
+    catch (issue) { setError(issue instanceof Error ? issue.message : "Não foi possível criar o documento local."); }
+    finally { setBusy(false); }
+  }
+  function download(file: LocalWorkspaceFile) {
+    downloadBlob(new Blob([file.bytes], { type: file.contentType }), file.name);
+  }
+  async function remove(file: LocalWorkspaceFile) {
+    if (!window.confirm(`Excluir a cópia local “${file.name}” deste navegador?`)) return;
+    await deleteLocalFile(file.id); await onFilesChanged(); onNotice("Cópia local removida.");
+  }
+  function openSyncSettings() {
+    window.history.pushState({}, "", "/acesso/equipe?tab=sync");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }
+  return <div className="page files-page">
+    <div className="page-heading files-heading"><div><p className="eyebrow">ARQUIVOS DA EQUIPE</p><h1>Arquivos do espaço</h1><p className="page-intro">Biblioteca do espaço <b>{workspace.name}</b>.</p></div>
+      <div className="file-toolbar-actions"><button className="button button-secondary" onClick={createTextDocument} disabled={busy}><Plus size={16} /> Novo documento local</button><button className="button button-primary" onClick={() => input.current?.click()} disabled={busy}><Upload size={16} /> {busy ? "Salvando…" : "Guardar neste navegador"}</button><input ref={input} className="visually-hidden" type="file" onChange={(event) => void uploadSelected(event.target.files?.[0])} /></div>
+    </div>
+    <section className="panel local-storage-panel">
+      <div className="local-storage-banner"><span className="local-storage-icon"><CloudOff size={20} /></span><div><b>Drive não conectado · modo local</b><p>Os arquivos abaixo ficam somente neste navegador. A equipe não consegue acessá-los, e eles não têm backup automático.</p></div>{workspace.role === "owner" ? <button className="button button-secondary" onClick={openSyncSettings}><HardDrive size={15} /> Conectar Drive</button> : <span className="local-owner-note">A proprietária pode ativar a sincronização em Espaço e equipe.</span>}</div>
+      {error && <div className="form-error file-error" role="alert">{error}</div>}
+      {files.length ? <div className="file-list">{files.map((file) => <div className="file-list-row" key={file.id}>
+        <button className="file-main-cell" onClick={() => onOpenEditor(file.id)}><span className="file-row-icon document"><FileText size={18} /></span><span className="file-row-copy"><b>{file.name}</b><small>{formatBytes(file.size)} · salvo neste navegador</small></span></button><span className="file-list-meta">{formatBytes(file.size)}</span><span className="file-list-meta">{formatDate(file.updatedAt)}</span><div className="file-row-actions"><button className="icon-button" aria-label={`Baixar ${file.name}`} onClick={() => download(file)}><ArrowDownToLine size={17} /></button><button className="icon-button" aria-label={`Excluir ${file.name}`} onClick={() => void remove(file)}><Trash2 size={16} /></button></div>
+      </div>)}</div> : <div className="file-empty-state"><span className="file-empty-icon"><HardDrive size={21} /></span><b>Nenhum arquivo local</b><span>Crie um documento ou escolha um arquivo para guardar neste navegador.</span></div>}
+      <div className="file-list-footer"><span>{files.length} {files.length === 1 ? "arquivo local" : "arquivos locais"}</span><span>Para levar a outro dispositivo, baixe os arquivos.</span></div>
+    </section>
+    <aside className="files-privacy-note"><ShieldCheck size={17} /><span><b>Armazenamento deste navegador</b><small>Apagar os dados do navegador pode remover essas cópias. Baixe os arquivos para manter uma cópia independente.</small></span></aside>
   </div>;
 }
 

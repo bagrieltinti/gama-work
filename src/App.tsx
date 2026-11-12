@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
-  Activity, ArrowDownToLine, ArrowRight, BriefcaseBusiness, CalendarDays,
+  Activity, ArrowDownToLine, ArrowRight, BriefcaseBusiness, CalendarDays, Cloud,
   Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, Command,
   FileUp, Filter, FolderKanban, FolderOpen,
   LayoutDashboard, LogOut, Mail, Menu, MoreHorizontal, Plus,
@@ -11,6 +11,7 @@ import Papa from "papaparse";
 import { AuthScreen } from "./components/AuthScreen";
 import { BrandMark } from "./components/BrandMark";
 import { FilesPage } from "./components/FilesPage";
+import { DriveSyncPanel } from "./components/DriveSyncPanel";
 import { PlatformAdminPage } from "./components/PlatformAdminPage";
 import { api, downloadBlob, formatDate, formatTime, json, patchJson, toDateTimeLocal } from "./lib/api";
 import { authClient } from "./lib/auth-client";
@@ -357,7 +358,7 @@ function parseStages(value: string) { try { const parsed: unknown = JSON.parse(v
 
 function SettingsPage({ workspace, user, version, setNotice, setModal, reloadWorkspaces }: { workspace: Workspace; user: AppUser; version: number; setNotice: (message: string) => void; setModal: (modal: ModalState) => void; reloadWorkspaces: () => Promise<void> }) {
   const [form, setForm] = useState({ name: workspace.name, description: workspace.description, icon: workspace.icon, accentColor: workspace.accent_color });
-  const [members, setMembers] = useState<Member[]>([]); const [invites, setInvites] = useState<Invitation[]>([]); const [guestSeats, setGuestSeats] = useState<GuestSeatSummary>({ active: 0, pending: 0, included: 3, used: 0, additional: 0 }); const [email, setEmail] = useState(""); const [role, setRole] = useState<"admin" | "collaborator">("collaborator"); const [deliveryMethod, setDeliveryMethod] = useState<"account" | "link">(workspace.role === "owner" ? "link" : "account"); const [busy, setBusy] = useState(false); const [tab, setTab] = useState<"space" | "team" | "data">("space");
+  const [members, setMembers] = useState<Member[]>([]); const [invites, setInvites] = useState<Invitation[]>([]); const [guestSeats, setGuestSeats] = useState<GuestSeatSummary>({ active: 0, pending: 0, included: 3, used: 0, additional: 0 }); const [email, setEmail] = useState(""); const [role, setRole] = useState<"admin" | "collaborator">("collaborator"); const [deliveryMethod, setDeliveryMethod] = useState<"account" | "link">(workspace.role === "owner" ? "link" : "account"); const [busy, setBusy] = useState(false); const [tab, setTab] = useState<"space" | "team" | "sync" | "data">("space");
   const isOwner = workspace.role === "owner"; const canManageTeam = isOwner || workspace.role === "admin";
   const refresh = useCallback(async () => { const data = await api<{ members: Member[]; guestSeats: GuestSeatSummary }>(`workspaces/${workspace.id}/members`); setMembers(data.members); setGuestSeats(data.guestSeats); if (canManageTeam) { const response = await api<{ invitations: Invitation[] }>(`workspaces/${workspace.id}/invites`); setInvites(response.invitations); } else setInvites([]); }, [workspace.id, canManageTeam]);
   useEffect(() => {
@@ -365,6 +366,11 @@ function SettingsPage({ workspace, user, version, setNotice, setModal, reloadWor
     window.addEventListener("gama:import", openImport);
     return () => window.removeEventListener("gama:import", openImport);
   }, [setModal]);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("drive") || url.searchParams.get("tab") === "sync") setTab("sync");
+    if (url.searchParams.has("tab")) { url.searchParams.delete("tab"); window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`); }
+  }, []);
   useEffect(() => { setForm({ name: workspace.name, description: workspace.description, icon: workspace.icon, accentColor: workspace.accent_color }); setDeliveryMethod(workspace.role === "owner" ? "link" : "account"); void refresh(); }, [workspace.id, workspace.name, workspace.description, workspace.icon, workspace.accent_color, workspace.role, refresh, version]);
   async function saveSpace(event: FormEvent) { event.preventDefault(); setBusy(true); try { await api(`workspaces/${workspace.id}`, patchJson(form)); await reloadWorkspaces(); setNotice("Identidade do espaço atualizada."); } catch (e) { setNotice(errorText(e)); } finally { setBusy(false); } }
   async function createInvite(event: FormEvent) { event.preventDefault(); setBusy(true); try { const result = await api<{ invitation: Invitation }>(`workspaces/${workspace.id}/invites`, json({ email, role, deliveryMethod })); setEmail(""); await refresh(); setInvites((current) => [result.invitation, ...current.filter((item) => item.id !== result.invitation.id)]); setNotice(result.invitation.url ? "Link único criado. Copie-o na lista de convites pendentes." : "Convite enviado à caixa da conta. A pessoa poderá aceitar ou recusar ao entrar."); } catch (e) { setNotice(errorText(e)); } finally { setBusy(false); } }
@@ -374,7 +380,7 @@ function SettingsPage({ workspace, user, version, setNotice, setModal, reloadWor
   async function copyInvite(invite: Invitation) { try { let url = invite.url; if (!url) { const result = await api<{ url: string; expiresAt: number }>(`workspaces/${workspace.id}/invites/${invite.id}/link`, { method: "POST" }); url = result.url; setInvites((list) => list.map((item) => item.id === invite.id ? { ...item, url, expiresAt: result.expiresAt } : item)); } await navigator.clipboard.writeText(url); setNotice("Link de convite copiado. Códigos anteriores desse convite deixam de funcionar."); } catch (e) { setNotice(errorText(e)); } }
   async function exportData(kind: "json" | "csv") { try { const response = await fetch(`/api/workspaces/${workspace.id}/clients/export.${kind}`, { credentials: "include" }); if (!response.ok) throw new Error("Não foi possível exportar este espaço."); downloadBlob(await response.blob(), `gama-work-${workspace.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.${kind}`); } catch (e) { setNotice(errorText(e)); } }
   return <div className="page settings-page"><div className="page-heading"><div><p className="eyebrow">CONFIGURAÇÕES</p><h1>Espaço e equipe</h1><p className="page-intro">Gerencie o espaço <b>{workspace.name}</b>, a identidade e os acessos.</p></div></div>
-    <div className="settings-layout"><nav className="settings-nav"><button className={tab === "space" ? "selected" : ""} onClick={() => setTab("space")}><BriefcaseBusiness size={17} /> Espaço</button><button className={tab === "team" ? "selected" : ""} onClick={() => setTab("team")}><UsersRound size={17} /> Equipe <span>{members.length}</span></button><button className={tab === "data" ? "selected" : ""} onClick={() => setTab("data")}><ArrowDownToLine size={17} /> Dados</button></nav>
+    <div className="settings-layout"><nav className="settings-nav"><button className={tab === "space" ? "selected" : ""} onClick={() => setTab("space")}><BriefcaseBusiness size={17} /> Espaço</button><button className={tab === "team" ? "selected" : ""} onClick={() => setTab("team")}><UsersRound size={17} /> Equipe <span>{members.length}</span></button><button className={tab === "sync" ? "selected" : ""} onClick={() => setTab("sync")}><Cloud size={17} /> Sincronização</button><button className={tab === "data" ? "selected" : ""} onClick={() => setTab("data")}><ArrowDownToLine size={17} /> Dados</button></nav>
       <div className="settings-main">
         {tab === "space" && <section className="panel settings-card"><div className="section-title"><div><h2>Identidade do espaço</h2><p>Deixe cada espaço com a cara da empresa ou equipe.</p></div><span className="workspace-icon preview-space-icon" style={{ background: form.accentColor }}>{iconFor(form.icon)}</span></div>
           <form className="settings-form" onSubmit={(event) => void saveSpace(event)}><label className="field-label">Nome da empresa / espaço<input required maxLength={80} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} disabled={!isOwner} placeholder="Ex.: Agência Gama" /></label><label className="field-label">Descrição<textarea rows={3} maxLength={280} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} disabled={!isOwner} placeholder="Uma breve descrição para a equipe." /></label>
@@ -415,6 +421,7 @@ function SettingsPage({ workspace, user, version, setNotice, setModal, reloadWor
             </div>)}</div>}
           </section>}
         </>}
+        {tab === "sync" && <DriveSyncPanel workspace={workspace} onNotice={setNotice} />}
         {tab === "data" && <section className="panel settings-card"><div className="section-title"><div><h2>Levar seus dados</h2><p>Exporte uma cópia sempre que precisar.</p></div><span className="data-icon"><ArrowDownToLine size={18} /></span></div><div className="export-choice"><span><b>Exportação completa</b><small>Clientes, histórico, agenda, modelos e jornadas em um arquivo JSON.</small></span><button className="button button-secondary" disabled={!canManageTeam} onClick={() => void exportData("json")}>Exportar JSON <ArrowDownToLine size={15} /></button></div><div className="export-choice"><span><b>Lista de clientes</b><small>Arquivo CSV compatível com planilhas e sistemas que aceitam CSV.</small></span><button className="button button-secondary" disabled={!canManageTeam} onClick={() => void exportData("csv")}>Exportar CSV <ArrowDownToLine size={15} /></button></div><button className="import-card" disabled={!canManageTeam} onClick={() => window.dispatchEvent(new CustomEvent("gama:import"))}><span className="import-card-icon"><FileUp size={18} /></span><span><b>Importar do Notion ou de uma planilha</b><small>Use um CSV ou exportação do Notion em ZIP. Escolha uma tabela de clientes.</small></span><ArrowRight size={16} /></button>{!canManageTeam && <p className="muted-copy">A exportação e importação ficam disponíveis para proprietária e administradoras.</p>}</section>}
       </div></div>
   </div>;

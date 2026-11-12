@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, Check, ExternalLink, LoaderCircle, Save, ShieldCheck } from "lucide-react";
 import type { AppUser, Workspace } from "../types";
+import { bytesBuffer, getLocalFile, saveLocalFile } from "../lib/local-files";
 
 interface EditorFile {
   id: string;
@@ -37,10 +38,11 @@ function bytesOf(value: EditorMessage["bytes"]): Uint8Array | null {
   return null;
 }
 
-export function TextEditorPage({ workspace, user, fileId, onExit, onNotice }: {
+export function TextEditorPage({ workspace, user, fileId, localMode = false, onExit, onNotice }: {
   workspace: Workspace;
   user: AppUser;
   fileId: string;
+  localMode?: boolean;
   onExit: () => void;
   onNotice: (message: string) => void;
 }) {
@@ -61,22 +63,35 @@ export function TextEditorPage({ workspace, user, fileId, onExit, onNotice }: {
     const target = frameRef.current?.contentWindow;
     if (!current || !target || !readyRef.current) return;
     try {
+      if (localMode) {
+        const local = await getLocalFile(current.id);
+        if (!local || local.workspaceId !== workspace.id) throw new Error("Este arquivo não está disponível neste navegador.");
+        const bytes = local.bytes.slice(0);
+        editorNameRef.current = local.name;
+        target.postMessage({ type: "wordcraft:open", name: local.name, bytes }, window.location.origin, [bytes]);
+        return;
+      }
       const response = await fetch(`${endpoint(workspace.id, current.id)}/content`, { credentials: "include" });
       if (!response.ok) throw new Error(issueText(await response.json().catch(() => null)));
       const bytes = await response.arrayBuffer();
       editorNameRef.current = current.name;
       target.postMessage({ type: "wordcraft:open", name: current.name, bytes }, window.location.origin, [bytes]);
     } catch (issue) { setError(issue instanceof Error ? issue.message : "Não foi possível abrir o documento."); }
-  }, [workspace.id]);
+  }, [localMode, workspace.id]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true); setFile(null); fileRef.current = null; readyRef.current = false; setError("");
-    void fetch(endpoint(workspace.id, fileId), { credentials: "include" })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(issueText(await response.json().catch(() => null)));
-        return response.json() as Promise<{ file: EditorFile }>;
-      })
+    const loadFile = localMode
+      ? getLocalFile(fileId).then((local) => {
+          if (!local || local.workspaceId !== workspace.id) throw new Error("Este arquivo não está disponível neste navegador.");
+          return { file: { id: local.id, workspace_id: local.workspaceId, folder_id: null, name: local.name, content_type: local.contentType, size: local.size, current_version: local.currentVersion, updated_at: local.updatedAt } };
+        })
+      : fetch(endpoint(workspace.id, fileId), { credentials: "include" }).then(async (response) => {
+          if (!response.ok) throw new Error(issueText(await response.json().catch(() => null)));
+          return response.json() as Promise<{ file: EditorFile }>;
+        });
+    void loadFile
       .then(({ file: next }) => {
         if (cancelled) return;
         fileRef.current = next; setFile(next); editorNameRef.current = next.name;
@@ -85,9 +100,15 @@ export function TextEditorPage({ workspace, user, fileId, onExit, onNotice }: {
       .catch((issue: unknown) => { if (!cancelled) setError(issue instanceof Error ? issue.message : "Não foi possível carregar o arquivo."); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [fileId, sendOpen, workspace.id]);
+  }, [fileId, localMode, sendOpen, workspace.id]);
 
   const createFile = useCallback(async (name: string, bytes: Uint8Array, contentType: string) => {
+    if (localMode) {
+      const time = Date.now();
+      const id = crypto.randomUUID();
+      await saveLocalFile({ id, workspaceId: workspace.id, name, contentType, size: bytes.byteLength, currentVersion: 1, createdAt: time, updatedAt: time, bytes: bytesBuffer(bytes) });
+      return { id, workspace_id: workspace.id, folder_id: null, name, content_type: contentType, size: bytes.byteLength, current_version: 1, updated_at: time } satisfies EditorFile;
+    }
     const response = await fetch(`/api/workspaces/${workspace.id}/files`, {
       method: "POST",
       credentials: "include",
@@ -97,7 +118,7 @@ export function TextEditorPage({ workspace, user, fileId, onExit, onNotice }: {
     const payload = await response.json().catch(() => null);
     if (!response.ok) throw new Error(issueText(payload));
     return (payload as { file: EditorFile }).file;
-  }, [workspace.id]);
+  }, [localMode, workspace.id]);
 
   const saveMessage = useCallback(async (message: EditorMessage) => {
     const bytes = bytesOf(message.bytes);
@@ -115,36 +136,46 @@ export function TextEditorPage({ workspace, user, fileId, onExit, onNotice }: {
         const created = await createFile(outputName, bytes, contentType);
         if (message.saveAs) {
           fileRef.current = created; setFile(created); editorNameRef.current = outputName;
-          onNotice("Documento salvo com outro nome.");
+          onNotice(localMode ? "Cópia salva neste navegador." : "Documento salvo com outro nome.");
         } else {
-          onNotice(`Cópia exportada para “${created.name}”.`);
+          onNotice(localMode ? `Cópia salva neste navegador como “${created.name}”.` : `Cópia exportada para “${created.name}”.`);
         }
       } else {
-        const response = await fetch(`${endpoint(workspace.id, current.id)}/content?baseVersion=${current.current_version}`, {
-          method: "PUT",
-          credentials: "include",
-          headers: { "Content-Type": "application/octet-stream" },
-          body: new Blob([bytes as BlobPart], { type: contentType }),
-        });
-        const payload = await response.json().catch(() => null);
-        if (response.status === 409) {
-          const recoveryName = appendConflictSuffix(outputName);
-          const recovered = await createFile(recoveryName, bytes, contentType);
-          fileRef.current = recovered; setFile(recovered); editorNameRef.current = outputName;
-          onNotice(`Havia uma versão mais nova. Seu conteúdo foi preservado em “${recovered.name}”.`);
-        } else if (!response.ok) throw new Error(issueText(payload));
-        else {
-          const version = (payload as { version: number }).version;
-          const updated = { ...current, size: bytes.byteLength, current_version: version, updated_at: Date.now() };
-          fileRef.current = updated; setFile(updated);
-          onNotice("Alterações salvas no espaço.");
+        if (localMode) {
+          const stored = await getLocalFile(current.id);
+          if (!stored || stored.workspaceId !== workspace.id) throw new Error("Este arquivo não está disponível neste navegador.");
+          const updatedAt = Date.now();
+          await saveLocalFile({ ...stored, name: outputName, contentType, size: bytes.byteLength, currentVersion: current.current_version + 1, updatedAt, bytes: bytesBuffer(bytes) });
+          const updated = { ...current, name: outputName, content_type: contentType, size: bytes.byteLength, current_version: current.current_version + 1, updated_at: updatedAt };
+          fileRef.current = updated; setFile(updated); editorNameRef.current = outputName;
+          onNotice("Alterações salvas neste navegador.");
+        } else {
+          const response = await fetch(`${endpoint(workspace.id, current.id)}/content?baseVersion=${current.current_version}`, {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/octet-stream" },
+            body: new Blob([bytes as BlobPart], { type: contentType }),
+          });
+          const payload = await response.json().catch(() => null);
+          if (response.status === 409) {
+            const recoveryName = appendConflictSuffix(outputName);
+            const recovered = await createFile(recoveryName, bytes, contentType);
+            fileRef.current = recovered; setFile(recovered); editorNameRef.current = outputName;
+            onNotice(`Havia uma versão mais nova. Seu conteúdo foi preservado em “${recovered.name}”.`);
+          } else if (!response.ok) throw new Error(issueText(payload));
+          else {
+            const version = (payload as { version: number }).version;
+            const updated = { ...current, size: bytes.byteLength, current_version: version, updated_at: Date.now() };
+            fileRef.current = updated; setFile(updated);
+            onNotice("Alterações salvas no Google Drive.");
+          }
         }
       }
       setDirty(false); dirtyRef.current = false; setSaved(true);
       window.setTimeout(() => setSaved(false), 2600);
     } catch (issue) { setError(issue instanceof Error ? issue.message : "Não foi possível salvar o documento."); }
     finally { setSaving(false); }
-  }, [createFile, onNotice, workspace.id]);
+  }, [createFile, localMode, onNotice, workspace.id]);
 
   useLayoutEffect(() => {
     const onMessage = (event: MessageEvent<EditorMessage>) => {
@@ -183,12 +214,12 @@ export function TextEditorPage({ workspace, user, fileId, onExit, onNotice }: {
 
   const src = `/tools/text/index.html?host=parent&author=${encodeURIComponent(user.name)}`;
   return <section className="text-editor-page">
-    <header className="text-editor-toolbar"><button className="button button-secondary editor-back-button" onClick={exit}><ArrowLeft size={16} /> Arquivos</button><span className="editor-file-name"><span className="editor-file-mark"><FileTextIcon /></span><span><b>{file?.name ?? "Documento"}</b><small>{workspace.name}</small></span></span><span className={`editor-save-state ${saving ? "busy" : dirty ? "dirty" : saved ? "saved" : ""}`}>{saving ? <><LoaderCircle size={14} className="spin" /> Salvando…</> : dirty ? <><Save size={14} /> Alterações não salvas</> : saved ? <><Check size={14} /> Salvo</> : file ? <><ShieldCheck size={14} /> Salvamento versionado</> : null}</span><a className="editor-license-link" href="/tools/text/licencas/FONTE.md" target="_blank" rel="noreferrer"><ExternalLink size={14} /> Licenças</a></header>
+    <header className="text-editor-toolbar"><button className="button button-secondary editor-back-button" onClick={exit}><ArrowLeft size={16} /> Arquivos</button><span className="editor-file-name"><span className="editor-file-mark"><FileTextIcon /></span><span><b>{file?.name ?? "Documento"}</b><small>{localMode ? "Somente neste navegador" : workspace.name}</small></span></span><span className={`editor-save-state ${saving ? "busy" : dirty ? "dirty" : saved ? "saved" : ""}`}>{saving ? <><LoaderCircle size={14} className="spin" /> Salvando…</> : dirty ? <><Save size={14} /> Alterações não salvas</> : saved ? <><Check size={14} /> Salvo</> : file ? <><ShieldCheck size={14} /> {localMode ? "Cópia local" : "Salvamento versionado"}</> : null}</span><a className="editor-license-link" href="/tools/text/licencas/FONTE.md" target="_blank" rel="noreferrer"><ExternalLink size={14} /> Licenças</a></header>
     {error && <div className="form-error editor-error" role="alert">{error}</div>}
-    <div className="text-editor-frame-wrap">{(loading || error) && <div className="text-editor-loading"><span className="file-spinner" /><b>{loading ? "Abrindo documento…" : "Editor indisponível"}</b><span>{loading ? "O conteúdo está sendo carregado do espaço privado." : "Confira a conexão e tente abrir o arquivo novamente."}</span></div>}
+    <div className="text-editor-frame-wrap">{(loading || error) && <div className="text-editor-loading"><span className="file-spinner" /><b>{loading ? "Abrindo documento…" : "Editor indisponível"}</b><span>{loading ? (localMode ? "O conteúdo está salvo neste navegador." : "O conteúdo está sendo carregado do Google Drive.") : "Confira a conexão e tente abrir o arquivo novamente."}</span></div>}
       <iframe ref={frameRef} className="text-editor-frame" src={src} title={`Editor de texto: ${file?.name ?? "documento"}`} allow="clipboard-read; clipboard-write; fullscreen" allowFullScreen />
     </div>
-    <footer className="text-editor-footer"><span><ShieldCheck size={14} /> Arquivo visível apenas para membros deste espaço.</span><span>As alterações são salvas como novas versões.</span></footer>
+    <footer className="text-editor-footer"><span><ShieldCheck size={14} /> {localMode ? "Este arquivo fica apenas neste navegador." : "Arquivo visível apenas para membros deste espaço."}</span><span>{localMode ? "Baixe o arquivo para manter uma cópia fora deste navegador." : "As alterações são salvas como novas versões no Google Drive."}</span></footer>
   </section>;
 }
 

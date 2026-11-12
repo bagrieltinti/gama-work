@@ -10,6 +10,7 @@ import taskRoutes from "./routes/tasks";
 import templateRoutes from "./routes/templates";
 import platformAdminRoutes from "./routes/platform-admin";
 import fileRoutes from "./routes/files";
+import { driveOAuthRoutes, workspaceDriveRoutes } from "./routes/drive";
 
 const app = new Hono<AppEnv>();
 
@@ -68,6 +69,8 @@ app.route("/api/workspaces/:workspaceId/clients", clientRoutes);
 app.route("/api/workspaces/:workspaceId/tasks", taskRoutes);
 app.route("/api/workspaces/:workspaceId/templates", templateRoutes);
 app.route("/api/workspaces/:workspaceId/files", fileRoutes);
+app.route("/api/workspaces/:workspaceId/drive", workspaceDriveRoutes);
+app.route("/api/drive", driveOAuthRoutes);
 app.route("/api/platform-admin", platformAdminRoutes);
 
 app.get("/api/me", async (c) => {

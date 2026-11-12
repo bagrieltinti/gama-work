@@ -2,8 +2,9 @@
 
 ## Estado desta versão
 
-- A biblioteca privada foi implementada com D1 para metadados e histórico e R2 privado para bytes. Operações passam pela API autenticada e validam participação no espaço.
-- Pastas, busca, envio até 20 MiB, movimentação, renomeação, lixeira, restauração, exclusão permanente, histórico e restauração de versão estão disponíveis. O limite beta é 1 GiB por espaço, contando versões antigas e itens na lixeira.
+- A biblioteca privada usa Google Drive para conteúdo, pastas e revisões; D1 mantém metadados e IDs, além dos tokens OAuth criptografados. Operações passam pela API autenticada e validam participação no espaço.
+- A proprietária conecta o Drive pela aba de sincronização; o Gama Work organiza cada empresa em `gama-work-files/<espaço>`. Sem conexão, a biblioteca oferece cópias locais no navegador e download, sem compartilhamento nem backup entre dispositivos.
+- Pastas, busca, envio até 20 MiB, movimentação, renomeação, lixeira, restauração e exclusão permanente são manipulados na pasta privada do Drive. As últimas 50 revisões binárias ficam disponíveis para restauração e ocupam a cota da conta conectada.
 - O editor de texto está incorporado em iframe same-origin. Ele abre arquivos do espaço, salva como versões e faz cópia de recuperação quando detecta conflito. Edição ao vivo simultânea continua fora do escopo.
 - O editor usa um release WebAssembly fixado do projeto de origem. O build verifica o hash, remove o favicon e nome de produto do HTML hospedeiro e divide o WebAssembly em partes estáticas com menos de 25 MiB. Avisos MIT/Apache, NOTICE, atribuições e licenças de fontes ficam disponíveis em `/tools/text/licencas/`.
 - Planilhas e PDF continuam placeholders.
@@ -14,7 +15,7 @@
 2. **Editor de PDF:** integrar o release após revisar limites de memória, dependências de OCR e licenças dos modelos e componentes adicionais.
 3. **Sincronização colaborativa:** avaliar edição simultânea e resolução de conflitos multiusuário, além do salvamento versionado já entregue.
 4. **Experiência e desempenho:** otimizar o carregamento WebAssembly, medir consumo em dispositivos modestos e avaliar filtros, prévias seguras e recuperação de versões.
-5. **Operação do R2:** adicionar indicadores de consumo e políticas de retenção para equilibrar cotas beta e histórico.
+5. **Operação do Drive:** adicionar indicadores de cota da conta, recuperação após revogação do OAuth e fluxos de migração entre contas Google.
 
 ## Licenças e identidade
 

@@ -15,7 +15,8 @@ Primeiro protótipo de uma plataforma gratuita e aberta para organizar clientes,
 - Cadastro de clientes, status, fidelização, retorno e histórico de atendimentos.
 - Agenda da equipe e itens pessoais, além de lista de tarefas.
 - Painel global de administração em `/acesso/admin`, com indicadores, busca de contas e espaços, suspensão/reativação e trilha de auditoria. O acesso é validado no Worker por uma lista secreta de e-mails.
-- Biblioteca de arquivos privada por espaço, com pastas, busca, envio, renomeação, movimentação, lixeira, restauração, exclusão permanente e histórico versionado. Cada arquivo aceita até 20 MB; o espaço tem cota beta de 1 GB que inclui versões anteriores e lixeira.
+- Biblioteca privada por espaço com Google Drive: a proprietária conecta uma conta e o Gama Work cria `Meu Drive/gama-work-files/<espaço>`. A equipe acessa pelo app; os arquivos não são compartilhados publicamente no Drive. Pastas, busca, renomeação, movimentação, lixeira, restauração e histórico são organizados pelo app. Cada envio aceita até 20 MB; as últimas 50 versões ficam disponíveis para restauração e contam no armazenamento da conta Google.
+- Quando o Drive não está conectado, o usuário pode guardar arquivos locais no navegador e baixá-los. Essas cópias não sincronizam com a equipe nem entre dispositivos e podem ser apagadas junto com os dados do navegador.
 - Editor de texto no navegador integrado por iframe same-origin, com salvamento versionado e preservação em cópia quando há conflito. Planilhas e PDF ainda são placeholders.
 - Modelos editáveis de jornadas, aplicáveis aos clientes.
 - Importação de clientes por CSV ou exportação do Notion em ZIP, com seleção e mapeamento de colunas.
@@ -25,8 +26,8 @@ Primeiro protótipo de uma plataforma gratuita e aberta para organizar clientes,
 
 - React, TypeScript e Vite
 - Cloudflare Workers com Static Assets
-- Cloudflare D1 para autenticação e dados
-- Cloudflare R2 privado para conteúdo dos arquivos; metadados e versões ficam no D1
+- Cloudflare D1 para autenticação, dados dos espaços, metadados dos arquivos e tokens OAuth do Drive criptografados
+- Google Drive API para conteúdo, pastas e revisões dos arquivos; os bytes dos arquivos não são armazenados no D1
 - Hono, Better Auth e Drizzle ORM
 
 ## Rodar localmente
@@ -38,7 +39,7 @@ npm install
 npm run dev
 ```
 
-O login e as rotas de dados locais precisam de uma instância D1 e dos segredos `BETTER_AUTH_SECRET`, `INITIAL_ADMIN_EMAILS` e `PLATFORM_ADMIN_EMAILS`; as credenciais do Google são opcionais até que o OAuth seja configurado. `INITIAL_ADMIN_EMAILS` e `PLATFORM_ADMIN_EMAILS` aceitam e-mails separados por vírgulas, ponto e vírgula ou quebras de linha. O bucket R2 `gama-work-files` deve existir e permanecer privado. Veja `cloudflare.config.ts` e as migrations em `migrations/`.
+O login e as rotas precisam de uma instância D1 e dos segredos `BETTER_AUTH_SECRET`, `INITIAL_ADMIN_EMAILS` e `PLATFORM_ADMIN_EMAILS`; as credenciais `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET` ativam o login Google e a conexão do Drive. Configure o OAuth do tipo Web e autorize o retorno `https://work.agenciagama.com.br/api/drive/callback`; a Google Drive API também precisa estar ativada no projeto Google Cloud. `INITIAL_ADMIN_EMAILS` e `PLATFORM_ADMIN_EMAILS` aceitam e-mails separados por vírgulas, ponto e vírgula ou quebras de linha. Veja `cloudflare.config.ts` e as migrations em `migrations/`.
 
 O build prepara uma versão fixada do editor de texto, confere o SHA-256 do pacote e divide o WebAssembly em arquivos estáticos menores que 25 MiB. Para uso local, execute `npm run prepare:text-editor` antes de iniciar o editor; o script baixa o release público se os assets ainda não estiverem presentes.
 
@@ -51,7 +52,9 @@ npm run build
 npm run deploy
 ```
 
-Antes do deploy, habilite o R2 na conta Cloudflare da Agência Gama, crie o bucket privado `gama-work-files` e configure os segredos. As alterações de esquema D1 devem ser aplicadas antes do deploy com `npx cf d1 migrations apply <ID_DO_BANCO>` usando um token com D1 Write. A migration `0002_platform_admin_files.sql` já foi aplicada à base de produção. Não coloque credenciais em arquivos versionados. O Worker usa o domínio `work.agenciagama.com.br`; a landing fica na raiz e a plataforma em `/acesso`.
+Antes do deploy, configure o cliente OAuth do Google, ative a Google Drive API, adicione a URL de retorno autorizada acima e cadastre `GOOGLE_CLIENT_ID` e `GOOGLE_CLIENT_SECRET` como segredos do Worker. A migration `0003_google_drive_storage.sql` precisa ser aplicada à instância D1 antes do deploy com `npx cf d1 migrations apply <ID_DO_BANCO>` usando um token com D1 Write. A conexão Google é separada do login: quem já entrou com Google tem a conta sugerida, mas precisa aceitar a permissão do Drive; os demais vinculam uma conta Google pela área **Espaço e equipe → Sincronização**. Não coloque credenciais em arquivos versionados. O Worker usa `work.agenciagama.com.br`; a landing fica na raiz e a plataforma em `/acesso`.
+
+Os tokens de atualização do Drive ficam criptografados no D1 com uma chave derivada de `BETTER_AUTH_SECRET`. Se esse segredo for trocado, as proprietárias precisarão autorizar novamente o Drive. O D1 guarda IDs, nomes, versões e permissões; o conteúdo e as revisões ficam na conta Google conectada.
 
 ## Identidade visual
 
@@ -63,4 +66,4 @@ O Gama Work está em fase de testes gratuita. Não há assinatura nem cobrança 
 
 ## Arquivos e editores planejados
 
-`/acesso/arquivos` já usa armazenamento privado, histórico e editor de texto. Planilhas e PDF seguem como placeholders para atualizações futuras. A pesquisa técnica, as atribuições e as próximas etapas estão em [`docs/ROADMAP_ARQUIVOS.md`](docs/ROADMAP_ARQUIVOS.md).
+`/acesso/arquivos` usa armazenamento privado do Google Drive, histórico e editor de texto. Sem conexão, há armazenamento local no navegador com download. Planilhas e PDF seguem como placeholders para atualizações futuras. A pesquisa técnica, as atribuições e as próximas etapas estão em [`docs/ROADMAP_ARQUIVOS.md`](docs/ROADMAP_ARQUIVOS.md).
