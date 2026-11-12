@@ -2,21 +2,23 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNo
 import {
   Activity, ArrowDownToLine, ArrowRight, BriefcaseBusiness, CalendarDays,
   Check, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Clock3, Command,
-  FileSpreadsheet, FileText, FileType2, FileUp, Filter, FolderKanban, FolderOpen,
-  LayoutDashboard, LockKeyhole, LogOut, Mail, Menu, MoreHorizontal, Plus,
+  FileUp, Filter, FolderKanban, FolderOpen,
+  LayoutDashboard, LogOut, Mail, Menu, MoreHorizontal, Plus,
   Search, Settings2, ShieldCheck, Sparkles, Tag, UsersRound, X,
 } from "lucide-react";
 import JSZip from "jszip";
 import Papa from "papaparse";
 import { AuthScreen } from "./components/AuthScreen";
 import { BrandMark } from "./components/BrandMark";
+import { FilesPage } from "./components/FilesPage";
+import { PlatformAdminPage } from "./components/PlatformAdminPage";
 import { api, downloadBlob, formatDate, formatTime, json, patchJson, toDateTimeLocal } from "./lib/api";
 import { authClient } from "./lib/auth-client";
 import { BETA_FREE_NOTICE, BETA_SPACE_LIMIT, FUTURE_PRICING_NOTICE } from "./lib/plan";
 import type { AppUser, Client, GuestSeatSummary, Interaction, Invitation, JourneyTemplate, Member, ReceivedInvitation, Task, Workspace } from "./types";
 import "./App.css";
 
-type View = "home" | "invitations" | "clients" | "agenda" | "tasks" | "files" | "templates" | "settings";
+type View = "home" | "invitations" | "clients" | "agenda" | "tasks" | "files" | "templates" | "settings" | "admin";
 type ModalState = { kind: "workspace" | "client" | "task" | "interaction" | "template" | "import" | "bootstrap-invite" | null; data?: unknown };
 type InvitePreview = { workspace_name: string; email: string; role: string };
 type BootstrapAdminInvite = { email: string; url: string };
@@ -28,6 +30,7 @@ const navigation: Array<{ id: View; title: string; icon: typeof LayoutDashboard 
   { id: "tasks", title: "Tarefas", icon: CheckCheck },
   { id: "files", title: "Arquivos", icon: FolderOpen },
   { id: "templates", title: "Modelos", icon: FolderKanban },
+  { id: "admin", title: "Administração", icon: ShieldCheck },
 ];
 
 const viewPaths: Record<View, string> = {
@@ -39,13 +42,19 @@ const viewPaths: Record<View, string> = {
   files: "/acesso/arquivos",
   templates: "/acesso/modelos",
   settings: "/acesso/equipe",
+  admin: "/acesso/admin",
 };
 const pathViews: Record<string, View> = Object.fromEntries(Object.entries(viewPaths).map(([view, path]) => [path, view])) as Record<string, View>;
-function viewFromPath() { return pathViews[window.location.pathname.replace(/\/$/, "")] ?? "home"; }
+function viewFromPath() {
+  const path = window.location.pathname.replace(/\/$/, "");
+  if (/^\/acesso\/arquivos\/[^/]+\/editar$/.test(path)) return "files";
+  return pathViews[path] ?? "home";
+}
 function inviteCode() { return window.location.pathname.match(/^\/(?:acesso\/)?join\/([^/]+)/)?.[1] ?? ""; }
 
 export default function App() {
   const [user, setUser] = useState<AppUser | null>(null);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const [invitation, setInvitation] = useState<InvitePreview | null>(null);
@@ -78,8 +87,9 @@ export default function App() {
   const refreshApp = useCallback(async () => {
     setLoading(true);
     try {
-      const me = await api<{ user: AppUser }>("me");
+      const me = await api<{ user: AppUser; isPlatformAdmin: boolean }>("me");
       setUser(me.user);
+      setIsPlatformAdmin(me.isPlatformAdmin);
       if (token || new URLSearchParams(window.location.search).has("cadastro")) window.history.replaceState({}, "", "/acesso");
       await Promise.all([loadWorkspaces(), loadReceivedInvitations()]);
     } catch {
@@ -95,6 +105,13 @@ export default function App() {
     window.addEventListener("popstate", syncView);
     return () => window.removeEventListener("popstate", syncView);
   }, []);
+
+  useEffect(() => {
+    if (authReady && user && view === "admin" && !isPlatformAdmin) {
+      setView("home");
+      window.history.replaceState({}, "", "/acesso");
+    }
+  }, [authReady, isPlatformAdmin, user, view]);
 
   useEffect(() => {
     void Promise.all([
@@ -121,11 +138,13 @@ export default function App() {
 
   if (!authReady || loading) return <div className="loading-screen"><BrandMark /><span>Preparando seu espaço…</span></div>;
   if (!user) return <AuthScreen googleEnabled={googleEnabled} invitation={invitation} onAuthenticated={refreshApp} />;
-  if (!workspaces.length) return <WelcomeScreen user={user} invitations={receivedInvitations} onRespondInvitation={respondToInvitation} onCreate={() => setModal({ kind: "workspace" })} modal={modal} setModal={setModal} close={() => setModal({ kind: null })} onCreated={loadWorkspaces} onLogout={async () => { await authClient.signOut(); window.location.reload(); }} />;
+  const logout = async () => { await authClient.signOut(); window.location.reload(); };
+  if (!workspaces.length && isPlatformAdmin && view === "admin") return <PlatformAdminStandalone user={user} onLogout={logout} />;
+  if (!workspaces.length) return <WelcomeScreen user={user} isPlatformAdmin={isPlatformAdmin} onOpenAdmin={() => navigate("admin")} invitations={receivedInvitations} onRespondInvitation={respondToInvitation} onCreate={() => setModal({ kind: "workspace" })} modal={modal} setModal={setModal} close={() => setModal({ kind: null })} onCreated={loadWorkspaces} onLogout={logout} />;
 
   const active = workspaces.find((space) => space.id === activeId) ?? workspaces[0];
   return <WorkspaceShell
-    user={user} workspaces={workspaces} active={active} view={view} setView={navigate}
+    user={user} isPlatformAdmin={isPlatformAdmin} workspaces={workspaces} active={active} view={view} setView={navigate}
     modal={modal} setModal={setModal} mobileNav={mobileNav} setMobileNav={setMobileNav}
     notice={notice} setNotice={setNotice} onSwitch={(id) => { setActiveId(id); localStorage.setItem("gama-work-active", id); }}
     invitations={receivedInvitations} onRespondInvitation={respondToInvitation}
@@ -133,7 +152,11 @@ export default function App() {
   />;
 }
 
-function WelcomeScreen({ user, invitations, onRespondInvitation, onCreate, modal, setModal, close, onCreated, onLogout }: { user: AppUser; invitations: ReceivedInvitation[]; onRespondInvitation: (id: string, action: "accept" | "decline") => Promise<void>; onCreate: () => void; modal: ModalState; setModal: (modal: ModalState) => void; close: () => void; onCreated: () => Promise<void>; onLogout: () => void }) {
+function PlatformAdminStandalone({ user, onLogout }: { user: AppUser; onLogout: () => void }) {
+  return <main className="platform-admin-standalone"><header className="admin-standalone-header"><a href="/acesso"><BrandMark /><span className="brand-word">GAMA <b>WORK</b></span></a><button className="button button-secondary" onClick={onLogout}><LogOut size={15} /> Sair</button></header><PlatformAdminPage user={user} /></main>;
+}
+
+function WelcomeScreen({ user, isPlatformAdmin, onOpenAdmin, invitations, onRespondInvitation, onCreate, modal, setModal, close, onCreated, onLogout }: { user: AppUser; isPlatformAdmin: boolean; onOpenAdmin: () => void; invitations: ReceivedInvitation[]; onRespondInvitation: (id: string, action: "accept" | "decline") => Promise<void>; onCreate: () => void; modal: ModalState; setModal: (modal: ModalState) => void; close: () => void; onCreated: () => Promise<void>; onLogout: () => void }) {
   const [busy, setBusy] = useState(false);
   async function createSpace(values: Record<string, unknown>) {
     setBusy(true);
@@ -151,6 +174,7 @@ function WelcomeScreen({ user, invitations, onRespondInvitation, onCreate, modal
       <button className="button button-primary" onClick={onCreate}><Plus size={17} /> Criar espaço da empresa</button>
       <div className="welcome-tip"><ShieldCheck size={16} /> Você pode criar até {BETA_SPACE_LIMIT} espaços próprios durante a fase de testes.</div>
       <button className="welcome-logout" onClick={onLogout}>Sair da conta</button>
+      {isPlatformAdmin && <button className="welcome-admin-link" onClick={onOpenAdmin}><ShieldCheck size={15} /> Administração da plataforma</button>}
     </div>
     <div className="welcome-invitations"><InvitationInbox invitations={invitations} onRespond={onRespondInvitation} /></div>
     <BetaPricingNotice className="welcome-pricing" />
@@ -190,53 +214,8 @@ function BetaPricingNotice({ className = "" }: { className?: string }) {
   return <aside className={`beta-pricing-notice ${className}`}><span className="eyebrow">FASE DE TESTES</span><b>{BETA_FREE_NOTICE}</b><p>{FUTURE_PRICING_NOTICE}</p></aside>;
 }
 
-const plannedFileTools = [
-  {
-    title: "Documentos",
-    category: "EDITOR DE TEXTO",
-    description: "Criar, revisar e compartilhar documentos da equipe.",
-    formats: "DOCX · ODT · RTF",
-    icon: FileText,
-    tone: "documents",
-  },
-  {
-    title: "Planilhas",
-    category: "EDITOR DE PLANILHAS",
-    description: "Organizar dados e trabalhar em planilhas no navegador.",
-    formats: "XLSX · ODS · CSV",
-    icon: FileSpreadsheet,
-    tone: "spreadsheets",
-  },
-  {
-    title: "PDF",
-    category: "LEITURA E EDIÇÃO",
-    description: "Visualizar, organizar páginas e fazer anotações em PDFs.",
-    formats: "PDF",
-    icon: FileType2,
-    tone: "pdf",
-  },
-];
-
-function FilesPage({ workspace }: { workspace: Workspace }) {
-  return <div className="page files-page">
-    <div className="page-heading"><div><p className="eyebrow">ARQUIVOS DA EQUIPE</p><h1>Arquivos do espaço</h1><p className="page-intro">Uma biblioteca compartilhada com as pessoas que participam de <b>{workspace.name}</b>.</p></div></div>
-    <section className="files-coming-panel panel">
-      <span className="files-coming-icon"><FolderOpen size={22} /></span>
-      <div className="files-coming-copy"><p className="eyebrow">PRÓXIMA ATUALIZAÇÃO</p><h2>Um lugar para os arquivos da equipe</h2><p>Pastas, busca, histórico de versões e edição compartilhada serão habilitados junto com as ferramentas abaixo.</p></div>
-      <span className="coming-soon-badge">Em preparação</span>
-    </section>
-    <div className="files-tool-heading"><div><p className="eyebrow">FERRAMENTAS PLANEJADAS</p><h2>Abra e edite no navegador</h2></div><span>Disponíveis em uma próxima atualização</span></div>
-    <div className="files-tool-grid">{plannedFileTools.map(({ title, category, description, formats, icon: Icon, tone }) => <article className="file-tool-card panel" key={title}>
-      <div className={`file-tool-icon file-tool-${tone}`}><Icon size={21} strokeWidth={1.8} /></div>
-      <div className="file-tool-copy"><p className="eyebrow">{category}</p><h3>{title}</h3><p>{description}</p></div>
-      <div className="file-tool-bottom"><span className="file-format-list">{formats}</span><button className="button button-secondary" disabled title="Esta ferramenta será ativada em uma próxima atualização"><LockKeyhole size={14} /> Em breve</button></div>
-    </article>)}</div>
-    <aside className="files-privacy-note"><ShieldCheck size={17} /><span><b>Privacidade do espaço</b><small>Os arquivos ficarão disponíveis apenas para pessoas autenticadas que participam deste espaço.</small></span></aside>
-  </div>;
-}
-
 function WorkspaceShell(props: {
-  user: AppUser; workspaces: Workspace[]; active: Workspace; view: View; setView: (view: View) => void;
+  user: AppUser; isPlatformAdmin: boolean; workspaces: Workspace[]; active: Workspace; view: View; setView: (view: View) => void;
   modal: ModalState; setModal: (modal: ModalState) => void; mobileNav: boolean; setMobileNav: (value: boolean) => void;
   notice: string; setNotice: (message: string) => void; onSwitch: (id: string) => void;
   invitations: ReceivedInvitation[]; onRespondInvitation: (id: string, action: "accept" | "decline") => Promise<void>;
@@ -253,7 +232,7 @@ function WorkspaceShell(props: {
       <WorkspacePicker workspaces={workspaces} active={active} ownedSpaceCount={workspaces.filter((space) => space.role === "owner").length} onSwitch={props.onSwitch} onCreate={() => setModal({ kind: "workspace" })} />
       <div className="sidebar-divider" />
       <p className="nav-label">ESPAÇO DE TRABALHO</p>
-      <nav className="main-nav">{navigation.map(({ id, title, icon: Icon }) => <button key={id} onClick={() => { setView(id); props.setMobileNav(false); }} className={`nav-item ${view === id ? "nav-item-active" : ""}`}><Icon size={18} strokeWidth={1.8} /><span>{title}</span>{id === "invitations" && props.invitations.length > 0 && <span className="invite-nav-count">{props.invitations.length}</span>}{id === "tasks" && <span className="nav-dot" />}</button>)}</nav>
+      <nav className="main-nav">{navigation.filter(({ id }) => id !== "admin" || props.isPlatformAdmin).map(({ id, title, icon: Icon }) => <button key={id} onClick={() => { setView(id); props.setMobileNav(false); }} className={`nav-item ${view === id ? "nav-item-active" : ""}`}><Icon size={18} strokeWidth={1.8} /><span>{title}</span>{id === "invitations" && props.invitations.length > 0 && <span className="invite-nav-count">{props.invitations.length}</span>}{id === "tasks" && <span className="nav-dot" />}</button>)}</nav>
       <div className="sidebar-grow" />
       <button className={`nav-item ${view === "settings" ? "nav-item-active" : ""}`} onClick={() => setView("settings")}><Settings2 size={18} /><span>Espaço e equipe</span></button>
       <div className="sidebar-footnote"><span className="footnote-orb"><Sparkles size={14} /></span><span><b>Um passo de cada vez.</b><small>Mais ferramentas chegam com o tempo.</small></span></div>
@@ -273,9 +252,10 @@ function WorkspaceShell(props: {
         {view === "clients" && <ClientsPage workspace={active} version={dataVersion} setModal={setModal} />}
         {view === "agenda" && <AgendaPage workspace={active} user={user} version={dataVersion} setModal={setModal} />}
         {view === "tasks" && <TasksPage workspace={active} version={dataVersion} setModal={setModal} setNotice={setNotice} />}
-        {view === "files" && <FilesPage workspace={active} />}
+        {view === "files" && <FilesPage workspace={active} user={user} onNotice={setNotice} />}
         {view === "templates" && <TemplatesPage workspace={active} version={dataVersion} setModal={setModal} setNotice={setNotice} />}
         {view === "settings" && <SettingsPage workspace={active} user={user} version={dataVersion} setNotice={setNotice} setModal={setModal} reloadWorkspaces={props.onReloadWorkspaces} />}
+        {view === "admin" && props.isPlatformAdmin && <PlatformAdminPage user={user} />}
       </div>
     </main>
     {modal.kind === "workspace" && <WorkspaceModal onClose={() => setModal({ kind: null })} onSave={async (values) => { const result = await api<{ workspace: Workspace }>("workspaces", json(values)); await props.onReloadWorkspaces(); props.onSwitch(result.workspace.id); setView("home"); reload(); setModal({ kind: null }); setNotice("Espaço criado."); }} />}

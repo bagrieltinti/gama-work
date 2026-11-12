@@ -2,16 +2,19 @@
 
 ## Estado desta versão
 
-`/acesso/arquivos` é uma área de apresentação. Documentos, Planilhas e PDF são placeholders desativados; ainda não há envio, armazenamento, leitura nem edição de arquivos. A futura biblioteca será compartilhada somente com membros autenticados do espaço.
+- A biblioteca privada foi implementada com D1 para metadados e histórico e R2 privado para bytes. Operações passam pela API autenticada e validam participação no espaço.
+- Pastas, busca, envio até 20 MiB, movimentação, renomeação, lixeira, restauração, exclusão permanente, histórico e restauração de versão estão disponíveis. O limite beta é 1 GiB por espaço, contando versões antigas e itens na lixeira.
+- O editor de texto está incorporado em iframe same-origin. Ele abre arquivos do espaço, salva como versões e faz cópia de recuperação quando detecta conflito. Edição ao vivo simultânea continua fora do escopo.
+- O editor usa um release WebAssembly fixado do projeto de origem. O build verifica o hash, remove o favicon e nome de produto do HTML hospedeiro e divide o WebAssembly em partes estáticas com menos de 25 MiB. Avisos MIT/Apache, NOTICE, atribuições e licenças de fontes ficam disponíveis em `/tools/text/licencas/`.
+- Planilhas e PDF continuam placeholders.
 
 ## Sequência recomendada
 
-1. **Biblioteca privada:** envio, download, pastas, busca, filtros e prévia dos formatos seguros. Guardar o conteúdo no R2 privado e os metadados no D1: espaço, nome, tipo, tamanho, versão, autora e datas.
-2. **Acesso por espaço:** validar autenticação e participação no espaço no Worker em cada operação de listar, enviar, abrir, renomear, mover, excluir e restaurar. Nunca tornar o bucket público; downloads devem passar pela autorização do Worker ou por URL assinada de curta duração.
-3. **Histórico e recuperação:** manter versões, lixeira e restauração. Ao salvar por um editor, comparar a versão-base com a versão atual e sinalizar conflitos antes de substituir alterações de outra pessoa.
-4. **Editores no navegador:** servir os builds WebAssembly em rotas da mesma origem e carregá-los em uma integração isolada. Usar o contrato de host documentado pelo projeto para abrir bytes e receber o arquivo salvo; validar origem, janela e versão das mensagens.
-5. **Sincronização colaborativa:** começar com salvamento versionado e tratamento de conflito. Edição simultânea em tempo real é uma etapa separada: o contrato de host não fornece, sozinho, sincronização multiusuário nem resolução de conflitos.
-6. **Experiência e desempenho:** preservar os temas claro, escuro e sistema dos editores, envolvendo-os com a navegação Gama Work sem reescrever suas paletas. Revisar tamanho dos builds, cache, MIME `application/wasm`, acessibilidade e carregamento em dispositivos modestos.
+1. **Editor de planilhas:** repetir o processo de release fixado, verificação de hash, licenças, identidade própria e integração host para o app aberto de planilhas.
+2. **Editor de PDF:** integrar o release após revisar limites de memória, dependências de OCR e licenças dos modelos e componentes adicionais.
+3. **Sincronização colaborativa:** avaliar edição simultânea e resolução de conflitos multiusuário, além do salvamento versionado já entregue.
+4. **Experiência e desempenho:** otimizar o carregamento WebAssembly, medir consumo em dispositivos modestos e avaliar filtros, prévias seguras e recuperação de versões.
+5. **Operação do R2:** adicionar indicadores de consumo e políticas de retenção para equilibrar cotas beta e histórico.
 
 ## Licenças e identidade
 

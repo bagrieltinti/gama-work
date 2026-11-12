@@ -34,7 +34,8 @@ routes.get("/", async (c) => {
             (SELECT COUNT(*) FROM clients cl WHERE cl.workspace_id = w.id) AS client_count
      FROM workspaces w
      INNER JOIN workspace_members m ON m.workspace_id = w.id
-     WHERE m.user_id = ?
+     LEFT JOIN platform_workspace_status s ON s.workspace_id = w.id
+     WHERE m.user_id = ? AND COALESCE(s.status, 'active') = 'active'
      ORDER BY w.name COLLATE NOCASE`,
   )
     .bind(user.id)

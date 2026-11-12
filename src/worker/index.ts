@@ -1,12 +1,15 @@
 import { Hono } from "hono";
 import { createAuth } from "./auth";
 import { isFullName, normalizeFullName } from "../lib/validation";
+import { isPlatformAdminEmail } from "./lib";
 import type { AppEnv } from "./types";
 import workspaceRoutes from "./routes/workspaces";
 import inviteRoutes from "./routes/invites";
 import clientRoutes from "./routes/clients";
 import taskRoutes from "./routes/tasks";
 import templateRoutes from "./routes/templates";
+import platformAdminRoutes from "./routes/platform-admin";
+import fileRoutes from "./routes/files";
 
 const app = new Hono<AppEnv>();
 
@@ -28,6 +31,11 @@ app.use("/api/*", async (c, next) => {
     email: session.user.email,
     name: session.user.name,
   });
+  const accountStatus = await c.env.DB.prepare("SELECT status FROM platform_user_status WHERE user_id = ? LIMIT 1")
+    .bind(session.user.id).first<{ status: string }>();
+  if (accountStatus?.status === "suspended") {
+    return c.json({ error: "O acesso desta conta à plataforma está suspenso." }, 403);
+  }
   await next();
 });
 
@@ -59,10 +67,12 @@ app.route("/api/invites", inviteRoutes);
 app.route("/api/workspaces/:workspaceId/clients", clientRoutes);
 app.route("/api/workspaces/:workspaceId/tasks", taskRoutes);
 app.route("/api/workspaces/:workspaceId/templates", templateRoutes);
+app.route("/api/workspaces/:workspaceId/files", fileRoutes);
+app.route("/api/platform-admin", platformAdminRoutes);
 
 app.get("/api/me", async (c) => {
   const user = c.get("user");
-  return c.json({ user });
+  return c.json({ user, isPlatformAdmin: isPlatformAdminEmail(c.env, user.email) });
 });
 
 app.notFound((c) => c.json({ error: "Rota não encontrada." }, 404));

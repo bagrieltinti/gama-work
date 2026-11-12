@@ -5,13 +5,30 @@ export interface WorkspaceAccess {
   role: WorkspaceRole;
 }
 
+export function platformAdminEmails(env: AppEnv["Bindings"]): Set<string> {
+  return new Set((env.PLATFORM_ADMIN_EMAILS ?? "")
+    .split(/[;,\n]/)
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean));
+}
+
+export function isPlatformAdminEmail(env: AppEnv["Bindings"], email: string): boolean {
+  return platformAdminEmails(env).has(email.trim().toLowerCase());
+}
+
+export async function requirePlatformAdmin(c: AppContext): Promise<boolean> {
+  return isPlatformAdminEmail(c.env, c.get("user").email);
+}
+
 export async function getWorkspaceAccess(
   c: AppContext,
   workspaceId: string,
 ): Promise<WorkspaceAccess | null> {
   const user = c.get("user");
   const row = await c.env.DB.prepare(
-    "SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ? LIMIT 1",
+    `SELECT m.role FROM workspace_members m
+     LEFT JOIN platform_workspace_status s ON s.workspace_id = m.workspace_id
+     WHERE m.workspace_id = ? AND m.user_id = ? AND COALESCE(s.status, 'active') = 'active' LIMIT 1`,
   )
     .bind(workspaceId, user.id)
     .first<{ role: WorkspaceRole }>();

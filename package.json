@@ -4,11 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "npm run prepare:text-editor && vite",
+    "build": "npm run prepare:text-editor && tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "deploy": "cf deploy"
+    "deploy": "npm run prepare:text-editor && cf deploy",
+    "prepare:text-editor": "node scripts/prepare-text-editor.mjs"
   },
   "dependencies": {
     "@fontsource/barlow-condensed": "^5.3.0",
